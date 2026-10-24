@@ -1200,11 +1200,12 @@ metadata cannot silently drift."
 - Create: `packages/oncall-tools/src/oncall_tools/servers/{telemetry,runbooks_kb,tickets,ops_actions}/__main__.py`
 - Create: `packages/oncall-service/src/oncall_service/main.py`
 - Create: `packages/oncall-eval/src/oncall_eval/harness.py`
+- Create: `eval/fixtures/dev-001.runrecord.json`
 - Test: `tests/test_entrypoints.py`
 
 **Interfaces:**
 - Consumes: the six packages from Tasks 1-2.
-- Produces: six runnable modules. `oncall_tools.servers._serve.run(mcp, argv)` parses `--transport {stdio,http}` and `--port`; `oncall_service.main:app` is an ASGI app with `GET /healthz`; `python -m oncall_eval.harness --cases DIR --fail-under F` is the CLI the CI eval gate invokes.
+- Produces: six runnable modules. `oncall_tools.servers._serve.run(mcp, argv)` parses `--transport {stdio,http}` and `--port`; `oncall_service.main:app` is an ASGI app with `GET /healthz`; `python -m oncall_eval.harness --cases DIR --fail-under F [--mock]` is the CLI the CI eval gate invokes. `--mock` exercises everything except the model — case schemas, the manifest cross-check, the `RunRecord` contract, the checkers and the grouping — against recorded fixtures, so CI gets real structural coverage without an API key.
 
 Every container in the overlay runs one of these modules. Without them the
 stack crash-loops, so they must exist before Task 6 wires Compose — even
@@ -1248,26 +1249,64 @@ def test_harness_cli_is_runnable():
     assert "--fail-under" in result.stdout
 
 
-def test_harness_exits_zero_on_an_empty_case_dir(tmp_path):
-    """The CI gate must be green until P4 lands the first real case, then
-    meaningful. It must never be green by skipping cases that exist."""
+def test_mock_mode_needs_no_api_key(monkeypatch):
+    """CI has no OPENROUTER_API_KEY, so without a mock mode the eval gate can
+    only ever be a stub. Mock mode checks everything except the model."""
+    env = {k: v for k, v in __import__("os").environ.items()
+           if k != "OPENROUTER_API_KEY"}
+    result = subprocess.run(
+        [sys.executable, "-m", "oncall_eval.harness", "--mock",
+         "--cases", "eval/dev", "--fail-under", "0.6"],
+        capture_output=True, text=True, timeout=120, env=env,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "mock" in result.stdout.lower()
+
+
+def test_live_mode_refuses_to_run_without_a_key():
+    """Failing loudly beats a run that silently scores zero on auth errors."""
+    env = {k: v for k, v in __import__("os").environ.items()
+           if k != "OPENROUTER_API_KEY"}
     result = subprocess.run(
         [sys.executable, "-m", "oncall_eval.harness",
+         "--cases", "eval/dev", "--fail-under", "0.6"],
+        capture_output=True, text=True, timeout=60, env=env,
+    )
+    assert result.returncode == 2
+    assert "OPENROUTER_API_KEY" in result.stdout + result.stderr
+
+
+def test_mock_mode_fails_on_a_case_with_no_fixture(tmp_path):
+    """The property that matters: mock mode must never be green by SKIPPING.
+    A case with no recorded fixture is a gap, not a pass."""
+    (tmp_path / "orphan.json").write_text(
+        '{"case_id": "orphan", "fault_id": "payment-failure", "complexity": "single"}'
+    )
+    result = subprocess.run(
+        [sys.executable, "-m", "oncall_eval.harness", "--mock",
          "--cases", str(tmp_path), "--fail-under", "0.6"],
         capture_output=True, text=True, timeout=60,
     )
-    assert result.returncode == 0
-    assert "0 cases" in result.stdout
+    assert result.returncode == 1
+    assert "no fixture" in result.stdout.lower()
 
 
-def test_harness_fails_when_cases_exist_but_none_pass(tmp_path):
-    (tmp_path / "c1.json").write_text('{"case_id": "x", "fault_id": "payment-failure"}')
+def test_mock_mode_catches_a_broken_run_record(tmp_path, monkeypatch):
+    """Mock mode's job is to catch contract drift: a fixture missing a
+    RunRecord field must fail, because that field is what the report groups by."""
+    cases, fixtures = tmp_path / "cases", tmp_path / "fixtures"
+    cases.mkdir(); fixtures.mkdir()
+    (cases / "c.json").write_text(
+        '{"case_id": "c", "fault_id": "payment-failure", "complexity": "single"}'
+    )
+    (fixtures / "c.runrecord.json").write_text('{"case_id": "c"}')  # missing config_id
     result = subprocess.run(
-        [sys.executable, "-m", "oncall_eval.harness",
-         "--cases", str(tmp_path), "--fail-under", "0.6"],
+        [sys.executable, "-m", "oncall_eval.harness", "--mock",
+         "--cases", str(cases), "--fixtures", str(fixtures), "--fail-under", "0.6"],
         capture_output=True, text=True, timeout=60,
     )
-    assert result.returncode == 1, "a case that cannot run must fail the gate"
+    assert result.returncode == 1
+    assert "config_id" in result.stdout
 
 
 def test_service_exposes_healthz():
@@ -1407,15 +1446,95 @@ Drives the system over HTTP through the incident API rather than importing
 oncall_graph, so measurement stays at the system boundary and P4 cannot reach
 inside what P2 is tuning.
 
-Until the first scorer lands, an empty case directory passes and any present
-case fails. That keeps the gate green on a fresh repo without ever being green
-because cases were silently skipped.
+Two modes, because CI has no OPENROUTER_API_KEY:
+
+* ``--mock`` calls no model. It replays a recorded RunRecord fixture per case
+  and exercises everything else for real: the case schema, the cross-check
+  against the fault manifest, the RunRecord contract, and the grouping the
+  report depends on. This runs on every push.
+* live mode (the default) drives the incident API and needs a key. P4 runs it;
+  held-out runs are manual and release-tagged.
+
+Mock mode's one invariant: **it is never green by skipping.** A case with no
+fixture fails, and a fixture missing a RunRecord field fails. A gate that
+passes because it found nothing to check is worse than no gate.
 """
 
 import argparse
 import json
+import os
 import sys
+from collections import defaultdict
 from pathlib import Path
+
+from oncall_contracts.config import Complexity, Topology
+from oncall_contracts.runrecord import RunRecord
+
+# Fields the report groups by or reports; a fixture missing any of these would
+# let contract drift through to the day someone writes the eval report.
+REQUIRED_RECORD_FIELDS = (
+    "case_id", "config_id", "complexity",
+    "tool_calls", "tokens", "usd", "latency_ms",
+    "correct_root_cause", "correct_action_proposed",
+    "verified_recovery", "harmful_actions",
+)
+
+
+def _check_fixture(case: dict, record: dict) -> list[str]:
+    """Return a list of contract violations for one case/fixture pair."""
+    problems = []
+    for field in REQUIRED_RECORD_FIELDS:
+        if field not in record:
+            problems.append(f"run record missing {field!r}")
+    if unknown := set(record) - set(RunRecord.__annotations__):
+        problems.append(f"run record has unknown fields {sorted(unknown)}")
+    if record.get("config_id") not in Topology.__args__:
+        problems.append(f"config_id {record.get('config_id')!r} is not a Topology")
+    if record.get("complexity") not in Complexity.__args__:
+        problems.append(f"complexity {record.get('complexity')!r} is not a Complexity")
+    if "complexity" in case and record.get("complexity") != case["complexity"]:
+        problems.append("run record complexity disagrees with the case")
+    return problems
+
+
+def run_mock(cases: list[Path], fixtures: Path, group_by: str | None) -> int:
+    print(f"mock mode: no model calls; {len(cases)} cases in play")
+    failures = 0
+    grouped: dict[str, list[dict]] = defaultdict(list)
+
+    for path in cases:
+        case = json.loads(path.read_text(encoding="utf-8"))
+        case_id = case.get("case_id", path.stem)
+        fixture = fixtures / f"{case_id}.runrecord.json"
+        if not fixture.exists():
+            print(f"  {case_id}: FAIL — no fixture at {fixture}")
+            failures += 1
+            continue
+        record = json.loads(fixture.read_text(encoding="utf-8"))
+        if problems := _check_fixture(case, record):
+            for problem in problems:
+                print(f"  {case_id}: FAIL — {problem}")
+            failures += len(problems)
+            continue
+        print(f"  {case_id}: OK — contracts valid")
+        grouped[record["complexity"] if group_by == "complexity" else "all"].append(record)
+
+    if group_by:
+        print("\ngrouping check:")
+        for stratum, records in sorted(grouped.items()):
+            print(f"  {stratum}: {len(records)} records")
+
+    print(f"\n{failures} contract violation(s)")
+    return 1 if failures else 0
+
+
+def run_live(cases: list[Path], config: str, fail_under: float) -> int:
+    print(f"live mode: {len(cases)} cases against config {config}")
+    for path in cases:
+        case_id = json.loads(path.read_text(encoding="utf-8")).get("case_id", path.stem)
+        print(f"  {case_id}: NOT RUN — scorer not implemented (P4)")
+    print(f"pass rate 0.0 < --fail-under {fail_under}")
+    return 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1424,6 +1543,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="directory of case files (eval/dev only in CI)")
     parser.add_argument("--fail-under", required=True, type=float,
                         help="minimum pass rate")
+    parser.add_argument("--mock", action="store_true",
+                        help="validate contracts against recorded fixtures; no model calls")
+    parser.add_argument("--fixtures", type=Path, default=Path("eval/fixtures"),
+                        help="recorded RunRecord fixtures for mock mode")
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--config", default="c2_team",
                         choices=["c0_workflow", "c1_single", "c2_team"],
@@ -1435,19 +1558,47 @@ def main(argv: list[str] | None = None) -> int:
 
     cases = sorted(args.cases.glob("*.json"))
     if not cases:
-        print(f"0 cases found in {args.cases}; nothing to score")
-        return 0
+        print(f"no cases found in {args.cases}")
+        return 1
 
-    print(f"{len(cases)} cases found in {args.cases}")
-    for case in cases:
-        case_id = json.loads(case.read_text(encoding="utf-8")).get("case_id", case.stem)
-        print(f"  {case_id}: NOT RUN — scorer not implemented (P4)")
-    print(f"pass rate 0.0 < --fail-under {args.fail_under}")
-    return 1
+    if args.mock:
+        return run_mock(cases, args.fixtures, args.group_by)
+
+    if not os.getenv("OPENROUTER_API_KEY"):
+        print("OPENROUTER_API_KEY is not set. Use --mock for contract checks "
+              "without a model, or set the key for a live run.", file=sys.stderr)
+        return 2
+
+    return run_live(cases, args.config, args.fail_under)
 
 
 if __name__ == "__main__":
     sys.exit(main())
+```
+
+Create `eval/fixtures/dev-001.runrecord.json` — a recorded run for the seed
+case, so mock mode has something real to validate against:
+
+```json
+{
+  "run_id": "fixture-0001",
+  "case_id": "dev-001",
+  "fault_id": "payment-failure",
+  "config_id": "c1_single",
+  "complexity": "single",
+  "tool_calls": 4,
+  "tokens": 8120,
+  "usd": 0.0031,
+  "latency_ms": 18400,
+  "correct_root_cause": true,
+  "root_cause_rank": 1,
+  "correct_action_proposed": true,
+  "verified_recovery": true,
+  "harmful_actions": 0,
+  "rolled_back": false,
+  "model_ids": {"commander": "openai/gpt-4.1-mini", "specialist": "openai/gpt-4o-mini"},
+  "playbook_hash": null
+}
 ```
 
 - [ ] **Step 7: Add the test client dependency**
@@ -1462,7 +1613,7 @@ Run:
 uv sync
 uv run pytest tests/test_entrypoints.py -v
 ```
-Expected: PASS, 8 tests (4 parametrised servers + 3 harness + 1 service).
+Expected: PASS, 10 tests (4 parametrised servers + 1 harness `--help` + 4 mock/live mode + 1 service).
 
 - [ ] **Step 9: Confirm the guards still pass**
 
@@ -2129,8 +2280,11 @@ jobs:
       - run: uv sync --frozen
       # DEV CASES ONLY. Held-out runs are a manual, release-tagged job that P4
       # triggers three times with the playbook hash recorded.
-      - name: Eval gate on development cases
-        run: uv run python -m oncall_eval.harness --cases eval/dev --fail-under 0.6
+      # --mock: CI has no OPENROUTER_API_KEY. This still checks the case
+      # schemas, the manifest cross-check, the RunRecord contract and the
+      # grouping for real — everything except the model. Live runs are P4's.
+      - name: Eval gate on development cases (contracts, no model)
+        run: uv run python -m oncall_eval.harness --mock --cases eval/dev --group-by complexity --fail-under 0.6
 
   docs:
     runs-on: ubuntu-latest

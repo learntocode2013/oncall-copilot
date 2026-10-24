@@ -351,7 +351,7 @@ Promotion is one-directional: harness writes `artifacts/`, a target renders into
 | `lint` | ruff + type check across the workspace |
 | `test` | per-package pytest, matrix over members — each installs only its own deps |
 | `guards` | the five import/leak tests from Decision 2 |
-| `eval-gate` | harness on **dev cases only**; fails below threshold |
+| `eval-gate` | harness `--mock` on **dev cases only**: validates case schemas, the manifest cross-check, the `RunRecord` contract and the grouping, with no model calls (CI holds no API key). Never green by skipping — a case with no fixture fails. Live scored runs are P4's, manual |
 | `docs` | pandoc build + link check |
 
 **The CI eval gate must never touch held-out cases.** CI runs on every push; pointing it at
