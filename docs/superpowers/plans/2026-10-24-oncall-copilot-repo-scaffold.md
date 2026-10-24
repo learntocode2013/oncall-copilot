@@ -1271,7 +1271,7 @@ repo but never green by skipping cases that exist."
 
 **Interfaces:**
 - Consumes: the workspace from Tasks 1–2 and the entry points from Task 5 (every container runs one).
-- Produces: `make up|stop|down|reset|preflight` at the repo root; `deploy/compose.oncall.yaml` declaring `incident-api` (8000) and `mcp-{telemetry,runbooks,tickets,ops}` (8101–8104).
+- Produces: `make bootstrap|up|stop|down|reset|preflight|verify|urls` at the repo root; `deploy/compose.oncall.yaml` declaring `incident-api` (8000) and `mcp-{telemetry,runbooks,tickets,ops}` (8101–8104). `make bootstrap` is the single post-clone command: submodules, `.env`, `uv sync`, `up --wait`, health check, URLs.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1336,6 +1336,40 @@ def test_preflight_checks_the_three_things_a_fresh_clone_lacks():
     text = MAKEFILE.read_text(encoding="utf-8")
     for needle in ("vendor/opentelemetry-demo/compose.yaml", ".env", "ONCALL_ROOT"):
         assert needle in text, f"preflight must check for {needle}"
+
+
+def test_bootstrap_is_the_one_post_clone_command():
+    """The guide requires a README that starts everything with one command."""
+    text = MAKEFILE.read_text(encoding="utf-8")
+    bootstrap = text.split("bootstrap:")[1].split("\nverify:")[0]
+    for step, why in [
+        ("submodule update --init --recursive", "repairs a clone made without --recurse-submodules"),
+        ("cp .env.example .env", "a fresh clone has no .env"),
+        ("OPENROUTER_API_KEY", "the one secret that cannot be provisioned"),
+        ("uv sync", "the workspace must be installed"),
+        ("--wait", "without it the command returns before the shop is serving"),
+    ]:
+        assert step in bootstrap, f"bootstrap must {why} ({step!r} missing)"
+
+
+def test_bootstrap_is_idempotent_by_construction():
+    """Every step must be a no-op when already satisfied: `test -f` guards the
+    .env copy, and submodule update / uv sync are no-ops when current."""
+    text = MAKEFILE.read_text(encoding="utf-8")
+    bootstrap = text.split("bootstrap:")[1].split("\nverify:")[0]
+    assert "test -f" in bootstrap and "cp .env.example" in bootstrap, (
+        "the .env copy must be guarded so re-running never clobbers a real .env"
+    )
+    assert "--force-recreate" in bootstrap or "up" in bootstrap
+
+
+def test_verify_checks_all_three_surfaces():
+    """`verify` is the clean-machine install evidence the guide asks for."""
+    text = MAKEFILE.read_text(encoding="utf-8")
+    verify = text.split("verify:")[1].split("\nurls:")[0]
+    for endpoint in ("localhost:8000/healthz", "localhost:9090/-/ready", "localhost:8080/"):
+        assert endpoint in verify, f"verify must curl {endpoint}"
+    assert "curl -fsS" in verify, "curl must use -f so a bad status fails the target"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1461,7 +1495,40 @@ COMPOSE := cd $(ONCALL_ROOT) && docker compose \
              -f $(DEMO)/compose.observability.yaml \
              -f deploy/compose.oncall.yaml
 
-.PHONY: preflight up stop down reset config reload-rules
+.PHONY: bootstrap preflight up stop down reset config reload-rules verify urls
+
+# The one post-clone command. Idempotent: safe to re-run at any time.
+# It stops exactly once on a clean machine, to have you add the one secret
+# that cannot be committed, then completes on the next run.
+bootstrap:
+	@cd $(ONCALL_ROOT) && git submodule update --init --recursive
+	@cd $(ONCALL_ROOT) && test -f .env || { cp .env.example .env; \
+	  echo "created .env from .env.example"; }
+	@cd $(ONCALL_ROOT) && grep -qE '^OPENROUTER_API_KEY=.+' .env || { \
+	  echo ""; \
+	  echo "ACTION REQUIRED — one line to add, then re-run 'make bootstrap':"; \
+	  echo "  edit .env and set OPENROUTER_API_KEY=sk-or-..."; \
+	  echo "  get a key at https://openrouter.ai/keys"; \
+	  exit 1; }
+	@cd $(ONCALL_ROOT) && uv sync
+	$(COMPOSE) up --force-recreate --remove-orphans --detach --wait --wait-timeout 600
+	@$(MAKE) verify
+	@$(MAKE) urls
+
+# Clean-machine install evidence. -f makes a bad status fail the target.
+verify:
+	@printf 'incident-api  '; curl -fsS localhost:8000/healthz && echo
+	@printf 'prometheus    '; curl -fsS localhost:9090/-/ready && echo
+	@printf 'shop frontend '; curl -fsS -o /dev/null -w '%{http_code}\n' localhost:8080/
+
+urls:
+	@echo ""
+	@echo "  Incident UI     http://localhost:8000"
+	@echo "  Web store       http://localhost:8080/"
+	@echo "  Grafana         http://localhost:8080/grafana/"
+	@echo "  Jaeger          http://localhost:8080/jaeger/ui/"
+	@echo "  Feature flags   http://localhost:8080/feature"
+	@echo "  Prometheus      http://localhost:9090"
 
 preflight:
 	@test -f $(ONCALL_ROOT)/$(DEMO)/compose.yaml || { \
@@ -1500,9 +1567,9 @@ reload-rules:
 Create `Makefile`:
 
 ```makefile
-.PHONY: up stop down reset config preflight reload-rules test lint guards
+.PHONY: bootstrap up stop down reset config preflight reload-rules verify urls test lint guards
 
-up stop down reset config preflight reload-rules:
+bootstrap up stop down reset config preflight reload-rules verify urls:
 	$(MAKE) -C deploy $@
 
 test:
@@ -1539,7 +1606,7 @@ MAX_USD_PER_INCIDENT=0.50
 - [ ] **Step 8: Run the tests**
 
 Run: `uv run pytest tests/test_deploy.py -v`
-Expected: PASS, 5 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 9: Verify preflight fails correctly, then verify Compose merges**
 
@@ -1918,7 +1985,7 @@ def test_readme_starts_everything_with_one_command():
     """The guide requires a README that starts everything with one command."""
     text = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "git clone --recurse-submodules" in text
-    assert "make up" in text
+    assert "make bootstrap" in text, "the one-command start must be make bootstrap"
 
 
 def test_contributing_states_the_import_rules():
@@ -1988,14 +2055,17 @@ Agentic AI Capstone, Project 4. Design: `docs/superpowers/specs/`.
 
 ```bash
 git clone --recurse-submodules <repo-url> oncall-copilot
-cd oncall-copilot
-cp .env.example .env          # add your OPENROUTER_API_KEY
-uv sync
-make up
+cd oncall-copilot && make bootstrap
 ```
 
-`make up` runs a preflight that names anything missing, then brings up the demo
-shop, its telemetry backends, our four MCP servers and the incident API.
+`make bootstrap` initialises the submodule, creates `.env`, runs `uv sync`, starts
+the demo shop with its telemetry backends plus our four MCP servers and the
+incident API, waits for them to be healthy, then curls three endpoints and prints
+the URLs.
+
+On a clean machine it stops **once**, to have you add `OPENROUTER_API_KEY` to
+`.env` — the one secret that cannot be committed. Re-run it and it completes.
+It is idempotent, so re-running is always safe.
 
 | Surface | URL |
 |---|---|
@@ -2110,14 +2180,17 @@ enforce and the two separations that affect marking."
 ## Done when
 
 ```bash
-make lint && make test && make guards && make up && make config
+make lint && make test && make guards && make bootstrap && make config
 ```
 
-all succeed from a fresh `git clone --recurse-submodules`, and:
+all succeed from a fresh `git clone --recurse-submodules` — and `make bootstrap`
+also succeeds from a clone made *without* `--recurse-submodules`, and from a
+clone with no `.env`, stopping once for the key. Also:
 
 - `uv sync` resolves all six packages from one lock file.
 - `make guards` passes, and each guard has been demonstrated failing on a planted violation (Task 3, Steps 6–7).
 - `make config` shows `incident-api`'s build context under **this** repo, not `vendor/`.
+- `make verify` reports all three endpoints healthy — this is the clean-machine install evidence.
 - The `CheckoutErrorRateHigh` rule appears in `localhost:9090/api/v1/rules`.
 - Every deliverable in `docs/` exists with an owner line.
 - `eval/heldout/` is referenced by nothing outside `oncall-eval`.

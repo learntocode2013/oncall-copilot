@@ -69,18 +69,25 @@ typed, allow-listed actions only.
 ## Getting started 🚧
 
 ```bash
-git clone --recurse-submodules <repo-url> oncall-copilot
-cd oncall-copilot
-cp .env.example .env          # then add your OPENROUTER_API_KEY
-uv sync
-make up
+git clone --recurse-submodules git@github.com:learntocode2013/oncall-copilot.git
+cd oncall-copilot && make bootstrap
 ```
 
-**`--recurse-submodules` is not optional.** The demo shop is a submodule; without it `make up`
-fails. If you already cloned without it: `git submodule update --init --recursive`.
+That is the whole setup. `make bootstrap` initialises the submodule, creates `.env` from the
+example, runs `uv sync`, starts the shop with its telemetry backends plus our four MCP servers
+and the incident API, waits until they are healthy, then checks three endpoints and prints the
+URLs below.
 
-`make up` runs a preflight that names anything missing, then starts the shop, its telemetry
-backends, our four MCP servers and the incident API.
+**It will stop once, on purpose.** `OPENROUTER_API_KEY` is the one thing that cannot be
+committed, so the first run on a clean machine halts with a single instruction: add the key to
+`.env`. Re-run `make bootstrap` and it completes.
+
+`make bootstrap` is **idempotent** — re-run it whenever you want. It never clobbers an existing
+`.env`, and it repairs a clone made without `--recurse-submodules`, so forgetting that flag
+costs you nothing.
+
+First run pulls and builds roughly 25 images. If it exceeds the 600-second health-wait, just run
+it again: everything is cached and the second pass is quick.
 
 Needs roughly **6 GB RAM** and **14 GB disk**, plus Docker Compose v2. If your laptop cannot
 hold it, the sanctioned fallback is a four-service FastAPI shop with faults injected via
@@ -121,7 +128,10 @@ successes), and the frontend's HTTP series carry **no `http_route` label**, so a
 
 | Command | What it does |
 |---|---|
-| `make up` | Start everything (runs preflight first) |
+| `make bootstrap` | **The one post-clone command.** Submodule, `.env`, `uv sync`, start, health-wait, URLs. Idempotent |
+| `make up` | Start everything, assuming bootstrap already ran once |
+| `make verify` | Curl the three health endpoints — our clean-machine install evidence |
+| `make urls` | Print the URL table |
 | `make stop` | Halt containers, keep data — `make up` resumes in seconds |
 | `make down` | Remove containers, keep volumes |
 | `make reset` | **Also wipes Prometheus/OpenSearch data.** Use between eval runs; never before a demo |
