@@ -40,11 +40,16 @@
 - Create: `packages/oncall-contracts/pyproject.toml`
 - Create: `packages/oncall-contracts/src/oncall_contracts/__init__.py`
 - Create: `packages/oncall-contracts/src/oncall_contracts/state.py`
+- Create: `packages/oncall-contracts/src/oncall_contracts/config.py`
+- Create: `packages/oncall-contracts/src/oncall_contracts/runrecord.py`
 - Test: `packages/oncall-contracts/tests/test_state.py`
+- Test: `packages/oncall-contracts/tests/test_runrecord.py`
 
 **Interfaces:**
 - Consumes: nothing (first task).
-- Produces: `oncall_contracts.state.IncidentState` (TypedDict), `oncall_contracts.state.Hypothesis` (TypedDict), and the installable workspace that every later task builds on.
+- Produces: `oncall_contracts.state.IncidentState` and `.Hypothesis`; `oncall_contracts.config.Topology` (`"c0_workflow" | "c1_single" | "c2_team"`) and `.Complexity` (`"single" | "multi"`); `oncall_contracts.runrecord.RunRecord`. Plus the installable workspace every later task builds on.
+
+`Topology` and `Complexity` live in contracts, not in `oncall-graph`, because `oncall-eval` must name a configuration and a stratum without importing the package it is measuring.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -79,6 +84,58 @@ def test_hypothesis_carries_evidence_and_confidence():
     hints = get_type_hints(Hypothesis)
     for field in ("service", "statement", "evidence_refs", "confidence"):
         assert field in hints, f"Hypothesis missing {field!r}"
+```
+
+Create `packages/oncall-contracts/tests/test_runrecord.py`:
+
+```python
+"""The run record IS the E1 result table.
+
+Experiment E1 asks whether the agent justifies its cost by comparing a fixed
+workflow (C0), one agent with all tools (C1) and the team (C2). Any claim of
+the form "the team helps on complex incidents but adds overhead on simple
+ones" is conditional, so every record must carry BOTH which configuration
+produced it and which complexity stratum the case belongs to. Without those
+two fields the comparison can only ever be one aggregate number.
+"""
+
+from typing import get_args
+
+from oncall_contracts.config import Complexity, Topology
+from oncall_contracts.runrecord import RunRecord
+
+
+def test_all_three_experiment_configurations_are_nameable():
+    assert set(get_args(Topology)) == {"c0_workflow", "c1_single", "c2_team"}
+
+
+def test_complexity_strata_are_nameable():
+    assert set(get_args(Complexity)) == {"single", "multi"}
+
+
+def test_record_can_group_by_configuration_and_stratum():
+    """Group by these two and the conditional claim either appears or it does not."""
+    for field in ("config_id", "complexity"):
+        assert field in RunRecord.__annotations__, f"RunRecord missing {field!r}"
+
+
+def test_record_carries_the_overhead_measures():
+    """\"Adds overhead\" is only measurable if cost is recorded per case."""
+    for field in ("tool_calls", "tokens", "usd", "latency_ms"):
+        assert field in RunRecord.__annotations__, f"RunRecord missing {field!r}"
+
+
+def test_record_carries_the_outcome_measures():
+    for field in (
+        "correct_root_cause", "root_cause_rank", "correct_action_proposed",
+        "verified_recovery", "harmful_actions", "rolled_back",
+    ):
+        assert field in RunRecord.__annotations__, f"RunRecord missing {field!r}"
+
+
+def test_record_pins_the_playbook_it_ran_with():
+    """Evidence that the playbook was frozen before the held-out run."""
+    assert "playbook_hash" in RunRecord.__annotations__
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -217,14 +274,79 @@ class IncidentState(TypedDict):
     transcript: Annotated[list[dict[str, Any]], add]
 ```
 
+Create `packages/oncall-contracts/src/oncall_contracts/config.py`:
+
+```python
+"""Names shared by the graph, the harness and the dashboards.
+
+`Topology` selects which of the three E1 configurations `build_graph` compiles.
+It lives here rather than in `oncall-graph` so the evaluation harness can name
+a configuration without importing the package it is measuring.
+"""
+
+from typing import Literal
+
+# C0: fixed workflow, no agent decisions. C1: one agent, all tools.
+# C2: supervisor plus specialists. E1 compares all three on the same model,
+# tools and budget, so all three must stay runnable for the life of the project.
+Topology = Literal["c0_workflow", "c1_single", "c2_team"]
+
+# Derived from how many services the injected fault actually spans. The unit of
+# stratification for any claim that the team helps on complex incidents but
+# costs more on simple ones.
+Complexity = Literal["single", "multi"]
+```
+
+Create `packages/oncall-contracts/src/oncall_contracts/runrecord.py`:
+
+```python
+"""One record per (case, configuration) run. Written to artifacts/runs/.
+
+This is the only source of numbers for the evaluation report: nobody retypes a
+figure into a document. Grouping these by config_id x complexity produces the
+E1 table directly.
+"""
+
+from typing import NotRequired, TypedDict
+
+from .config import Complexity, Topology
+
+
+class RunRecord(TypedDict):
+    run_id: str
+    case_id: str
+    fault_id: str
+    config_id: Topology
+    complexity: Complexity
+
+    # Cost side of E1 — what the orchestration charges you.
+    tool_calls: int
+    tokens: int
+    usd: float
+    latency_ms: int
+
+    # Outcome side of E1.
+    correct_root_cause: bool          # top-1
+    root_cause_rank: int | None       # for top-3; None if never proposed
+    correct_action_proposed: bool
+    verified_recovery: bool
+    harmful_actions: int              # target is zero
+    rolled_back: bool
+
+    # Provenance, so a result can be tied to what produced it.
+    model_ids: dict[str, str]
+    playbook_hash: NotRequired[str | None]
+    error: NotRequired[str | None]
+```
+
 - [ ] **Step 5: Sync and run the test**
 
 Run:
 ```bash
 uv sync
-uv run pytest packages/oncall-contracts/tests/test_state.py -v
+uv run pytest packages/oncall-contracts/tests -v
 ```
-Expected: PASS, 3 tests.
+Expected: PASS, 9 tests (3 state + 6 run record).
 
 - [ ] **Step 6: Commit**
 
@@ -250,7 +372,9 @@ transcript because parallel diagnosis agents write them concurrently."
 
 **Interfaces:**
 - Consumes: `oncall_contracts` from Task 1.
-- Produces: five importable packages. `oncall_graph.build_graph(tools, store)` and `oncall_tools.load_tools(transport)` exist as typed stubs raising `NotImplementedError`, so later tasks and the guard tests have real names to bind to.
+- Produces: five importable packages. `oncall_graph.build_graph(tools, store, *, topology)` and `oncall_tools.load_tools(transport)` exist as typed stubs raising `NotImplementedError`, so later tasks and the guard tests have real names to bind to.
+
+**Build order note.** C1 is the week-1 vertical slice, so it is written first — but it is written as `topologies/c1_single.py`, not as "the graph". The shared parts (hypothesis ranking, evidence budget, the tool-calling loop) go in `nodes/` and `planning/` and are imported by both C1 and C2. If C1 and C2 each carry their own ranking code, E1 measures node quality rather than topology, and the comparison the guide asks for is confounded.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -290,6 +414,21 @@ def test_declared_workspace_deps_match_the_design(name, expected):
         if d.startswith("oncall-")
     }
     assert declared == expected, f"{name}: declared {declared}, design says {expected}"
+
+
+def test_build_graph_can_select_any_of_the_three_e1_configurations():
+    """E1 compares C0, C1 and C2 on the same model, tools and budget, so all
+    three must be reachable from one entry point. If the topology were implicit,
+    growing C1 into C2 would destroy C1 and E1 could never be run."""
+    import inspect
+
+    from oncall_contracts.config import Topology
+    from oncall_graph import build_graph
+
+    params = inspect.signature(build_graph).parameters
+    assert "topology" in params, "build_graph must take a topology"
+    assert params["topology"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert params["topology"].annotation is Topology or params["topology"].annotation == "Topology"
 
 
 @pytest.mark.parametrize("name,expected", sorted(PACKAGES.items()))
@@ -417,11 +556,25 @@ Create `packages/oncall-graph/src/oncall_graph/__init__.py`:
 
 from typing import Any
 
+from oncall_contracts.config import Topology
+
 __all__ = ["build_graph"]
 
 
-def build_graph(tools: dict[str, Any], store: Any = None) -> Any:
-    """Compile the incident-commander graph.
+def build_graph(
+    tools: dict[str, Any],
+    store: Any = None,
+    *,
+    topology: Topology = "c2_team",
+) -> Any:
+    """Compile one of the three E1 configurations.
+
+    `topology` selects it: `c0_workflow` (fixed sequence, no agent decisions),
+    `c1_single` (one ReAct loop holding all tools) or `c2_team` (supervisor
+    plus specialists). All three must stay runnable for the life of the
+    project: E1 compares them on the same model, tools and budget, and the
+    guide requires experiments be config files rather than code branches. Grow
+    C1 into C2 by ADDING a topology, never by mutating one.
 
     Tools arrive by injection, never by import, so P3 can change server
     internals freely and a diagnosis node's tool list stays assertable.
@@ -486,7 +639,7 @@ Run:
 uv sync
 uv run pytest tests/test_workspace.py -v
 ```
-Expected: PASS, 24 tests (6 import + 6 deps + 6 sources + the 6 parametrised names).
+Expected: PASS, 19 tests (6 import + 6 deps + 6 sources + 1 topology signature).
 
 - [ ] **Step 8: Commit**
 
@@ -757,6 +910,42 @@ def test_manifest_parses_and_every_entry_is_complete():
         assert required <= set(fault), f"{fault.get('fault_id')} missing {required - set(fault)}"
 
 
+def test_complexity_matches_the_services_involved():
+    """complexity is derived, not asserted by hand: a two-service fault that
+    claims to be 'single' would silently land in the wrong E1 stratum."""
+    faults = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))["faults"]
+    for fault in faults:
+        expected = "multi" if len(fault["root_cause_services"]) > 1 else "single"
+        assert fault["complexity"] == expected, (
+            f"{fault['fault_id']}: complexity {fault['complexity']!r} but "
+            f"{len(fault['root_cause_services'])} services involved"
+        )
+
+
+def test_both_strata_are_represented():
+    """E1's conditional claim needs cases on both sides of the split."""
+    faults = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))["faults"]
+    strata = {f["complexity"] for f in faults}
+    assert strata == {"single", "multi"}, f"manifest covers only {strata}"
+
+
+def test_every_case_declares_its_stratum_and_it_matches_the_manifest():
+    """A case whose complexity disagrees with its fault would corrupt the
+    grouping that the whole E1 comparison rests on."""
+    import json
+
+    faults = {
+        f["fault_id"]: f
+        for f in yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))["faults"]
+    }
+    for path in (ROOT / "eval" / "dev").glob("*.json"):
+        case = json.loads(path.read_text(encoding="utf-8"))
+        assert "complexity" in case, f"{path.name}: no complexity"
+        assert case["complexity"] == faults[case["fault_id"]]["complexity"], (
+            f"{path.name}: stratum disagrees with the manifest"
+        )
+
+
 def test_fault_ids_are_unique():
     faults = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))["faults"]
     ids = [f["fault_id"] for f in faults]
@@ -787,15 +976,24 @@ Create `packages/oncall-contracts/src/oncall_contracts/faults.py`:
 Because we inject the fault, the true root cause and the correct fix are known
 in advance. That is what makes code-first scoring possible and why this file,
 not a model's opinion, is the arbiter of a correct diagnosis.
+
+`flags` and `root_cause_services` are lists because the guide requires cases
+with two faults at once, and those multi-service incidents are precisely the
+stratum where a team of agents might beat a single agent. `complexity` is the
+stratification key: an aggregate E1 number cannot support a claim of the form
+"the team helps here but costs more there".
 """
 
 from typing import TypedDict
 
+from .config import Complexity
+
 
 class FaultSpec(TypedDict):
     fault_id: str
-    flag: str
-    root_cause_service: str
+    flags: list[str]                  # a list: two-faults-at-once is one case
+    root_cause_services: list[str]
+    complexity: Complexity            # "multi" when more than one service
     correct_action: str
     detect_query: str
 ```
@@ -822,8 +1020,9 @@ Create `eval/faults/manifest.yaml`:
 # with the fault on and NaN on an idle shop, so it cannot fire spuriously.
 faults:
   - fault_id: payment-failure
-    flag: paymentFailure
-    root_cause_service: payment
+    flags: [paymentFailure]
+    root_cause_services: [payment]
+    complexity: single
     correct_action: "set_flag(flag=paymentFailure, value=false)"
     detect_query: >-
       sum(rate(http_server_request_duration_seconds_count{service_name="frontend",
@@ -833,20 +1032,38 @@ faults:
       + sum(rate(demo_payment_transactions_total[5m])))
 
   - fault_id: cart-failure
-    flag: cartFailure
-    root_cause_service: cart
+    flags: [cartFailure]
+    root_cause_services: [cart]
+    complexity: single
     correct_action: "set_flag(flag=cartFailure, value=false)"
     detect_query: >-
       sum(rate(rpc_server_duration_milliseconds_count{service_name="cart",
       rpc_grpc_status_code!="0"}[5m]))
 
   - fault_id: ad-high-cpu
-    flag: adHighCpu
-    root_cause_service: ad
+    flags: [adHighCpu]
+    root_cause_services: [ad]
+    complexity: single
     correct_action: "restart(service=ad)"
     detect_query: >-
       histogram_quantile(0.95, sum by (le) (rate(
       rpc_server_duration_milliseconds_bucket{service_name="ad"}[5m])))
+
+  # A multi-service incident. This stratum is where a team of agents may pay
+  # for itself: two independent faults, so a single investigator that commits
+  # to the first plausible cause stops early and misses the second. Ensure the
+  # taxonomy has ENOUGH of these — a per-stratum difference across a handful of
+  # cases is noise, not a finding.
+  - fault_id: payment-and-cart-failure
+    flags: [paymentFailure, cartFailure]
+    root_cause_services: [payment, cart]
+    complexity: multi
+    correct_action: "set_flag(flag=paymentFailure, value=false); set_flag(flag=cartFailure, value=false)"
+    detect_query: >-
+      sum(rate(http_server_request_duration_seconds_count{service_name="frontend",
+      http_response_status_code="422"}[5m]))
+      + sum(rate(rpc_server_duration_milliseconds_count{service_name="cart",
+      rpc_grpc_status_code!="0"}[5m]))
 ```
 
 - [ ] **Step 6: Create the seed runbook**
@@ -923,7 +1140,8 @@ Create `eval/dev/001-payment-failure.json`:
 {
   "case_id": "dev-001",
   "fault_id": "payment-failure",
-  "variant": "baseline",
+  "complexity": "single",
+  "variant": "nominal",
   "alert": {
     "status": "firing",
     "labels": {
@@ -936,7 +1154,7 @@ Create `eval/dev/001-payment-failure.json`:
     }
   },
   "expected": {
-    "root_cause_service": "payment",
+    "root_cause_services": ["payment"],
     "correct_action": "set_flag(flag=paymentFailure, value=false)",
     "max_tool_calls": 10,
     "harmful_actions": 0
@@ -1207,6 +1425,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fail-under", required=True, type=float,
                         help="minimum pass rate")
     parser.add_argument("--run-id", default=None)
+    parser.add_argument("--config", default="c2_team",
+                        choices=["c0_workflow", "c1_single", "c2_team"],
+                        help="which E1 configuration to run")
+    parser.add_argument("--group-by", default=None, choices=["complexity"],
+                        help="stratify the report; required to support any "
+                             "claim that one topology wins only on some cases")
     args = parser.parse_args(argv)
 
     cases = sorted(args.cases.glob("*.json"))
@@ -2118,7 +2342,7 @@ Create `CONTRIBUTING.md`:
 3. **Shared types live in `oncall-contracts`**, which imports nothing from the
    workspace. If `IncidentState` moved into `oncall-graph`, P4 and P5 would
    both have to import P2's package and the eval separation would collapse.
-4. **Tools reach the graph by injection.** `build_graph(tools, store)` receives
+4. **Tools reach the graph by injection.** `build_graph(tools, store, *, topology)` receives
    an already-loaded toolset, so a diagnosis node's tool list stays assertable.
 
 ## Separations that affect marks

@@ -150,9 +150,9 @@ oncall-copilot/
 │   │   └── src/oncall_contracts/
 │   │       ├── state.py            # IncidentState TypedDict
 │   │       ├── tools.py            # MCP tool in/out schemas, approval payload
-│   │       ├── faults.py           # fault manifest schema
-│   │       ├── runrecord.py        # per-incident run record
-│   │       └── config.py           # model IDs, budgets, thresholds
+│   │       ├── faults.py           # fault manifest schema (lists + complexity)
+│   │       ├── runrecord.py        # per-run record: config_id x complexity
+│   │       └── config.py           # Topology, Complexity, model IDs, budgets
 │   │
 │   ├── oncall-knowledge/      P1
 │   │   └── src/oncall_knowledge/
@@ -183,8 +183,10 @@ oncall-copilot/
 │   │       ├── improvement/
 │   │       │   ├── reflexion.py
 │   │       │   └── playbook.py     # lesson store, freeze + hash
-│   │       └── baseline/
-│   │           └── single_agent.py # C1 for experiment E1
+│   │       └── topologies/        # the three E1 configurations, siblings
+│   │           ├── c0_workflow.py  # fixed sequence, no agent decisions
+│   │           ├── c1_single.py    # one ReAct loop, all tools (week-1 slice)
+│   │           └── c2_team.py      # supervisor + specialists
 │   │
 │   ├── oncall-tools/          P3
 │   │   └── src/oncall_tools/
@@ -424,6 +426,28 @@ sum(rate(http_server_request_duration_seconds_count{
 invisible in metrics. **Metrics say checkout is broken; only traces say payment is why.** The
 `telemetry` tool must therefore return correlated metric *and* trace evidence, or the diagnosis
 agents cannot localise a fault to a service — which is most of signature challenge A.
+
+## 8a. Experiment E1 is a structural requirement, not a reporting step
+
+E1 compares C0 (fixed workflow), C1 (one agent, all tools) and C2 (the team) on
+the same model, tools and budget. Three consequences for structure:
+
+1. **`build_graph` takes a keyword-only `topology`.** All three configurations must
+   stay runnable for the life of the project, so C1 is grown into C2 by *adding* a
+   topology, never by mutating one. C1 is written first — it is the week-1 vertical
+   slice — but as `topologies/c1_single.py`, not as "the graph".
+2. **C1 and C2 share `nodes/` and `planning/`.** If each carried its own hypothesis
+   ranking, E1 would measure node quality rather than topology.
+3. **Every run record carries `config_id` and `complexity`.** Any claim of the form
+   "the team helps on complex multi-service incidents but adds overhead on simple
+   ones" is conditional, and an aggregate number cannot support it. `complexity` is
+   derived from `len(root_cause_services)`, and `flags` is a list so the
+   two-faults-at-once cases the guide requires are expressible.
+
+A caution that belongs with the design: this hypothesis is falsifiable. The team may
+prove worse everywhere, or better everywhere, and with ~20 development cases split
+across two strata a per-stratum difference can easily be noise. Report what the runs
+show, including when n is too small to conclude.
 
 ## 9. Out of scope
 

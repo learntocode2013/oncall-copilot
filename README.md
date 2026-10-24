@@ -230,7 +230,7 @@ Both land on P4, which is why P4's role cannot be merged into anyone else's and 
 2. **`oncall-eval` drives the system over HTTP**, never by importing `oncall_graph`. Measurement
    stays at the system boundary, and P4 cannot reach inside what P2 is tuning.
 3. **Shared types live in `oncall-contracts`**, which imports nothing from the workspace.
-4. **Tools reach the graph by injection**, not import — `build_graph(tools, store)` receives an
+4. **Tools reach the graph by injection**, not import — `build_graph(tools, store, *, topology)` receives an
    already-loaded toolset, which is what keeps a diagnosis node's tool list assertable.
 
 Why tests and not a style guide: **contamination of the held-out set makes your scores go *up*

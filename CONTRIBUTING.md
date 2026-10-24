@@ -36,11 +36,30 @@ Keep these small. Everything else in a package is internal and may change freely
 
 | Package | Public API |
 |---|---|
-| `oncall-graph` | `build_graph(tools, store) -> CompiledStateGraph` — nothing else |
+| `oncall-graph` | `build_graph(tools, store, *, topology) -> CompiledStateGraph` — nothing else |
 | `oncall-tools` | `load_tools(transport) -> ToolRegistry`; the hook callables |
 | `oncall-knowledge` | retriever + memory-store interfaces |
 | `oncall-service` | the HTTP API (not a Python API) |
 | `oncall-eval` | a CLI; imported by nobody |
+
+## The three E1 configurations
+
+`build_graph` takes a keyword-only `topology`: `c0_workflow` (fixed sequence, no agent
+decisions), `c1_single` (one ReAct loop holding all tools) or `c2_team` (supervisor plus
+specialists). They live side by side in `oncall_graph/topologies/`.
+
+**Grow C1 into C2 by adding a topology, never by mutating one.** Experiment E1 compares all
+three on the same model, tools and budget, so every one of them has to stay runnable for the
+life of the project. C1 gets written first — it is the week-1 vertical slice — but as
+`topologies/c1_single.py`, not as "the graph".
+
+**C1 and C2 share `nodes/` and `planning/`.** If each carried its own hypothesis ranking, E1
+would be measuring node quality instead of topology and the comparison would be worthless.
+
+Every run writes a `RunRecord` carrying `config_id` and `complexity`. Group by those two and
+you get the E1 table. Without both, the only answer available is one aggregate number, which
+cannot support a claim like "the team helps on multi-service incidents but costs more on
+simple ones".
 
 ## The P2 / P3 seam
 
