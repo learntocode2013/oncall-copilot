@@ -179,6 +179,11 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["packages", "tests"]
+# importlib mode keeps test directories off sys.path, so identically named test
+# modules in sibling packages do not collide. Without it, two files both named
+# tests/test_import.py abort the WHOLE run with "import file mismatch:
+# Interrupted: 1 error during collection" — not just that file. Verified.
+addopts = "--import-mode=importlib"
 pythonpath = []
 
 [tool.ruff]
@@ -363,11 +368,11 @@ transcript because parallel diagnosis agents write them concurrently."
 ### Task 2: The five layer packages as importable stubs
 
 **Files:**
-- Create: `packages/oncall-knowledge/{pyproject.toml,src/oncall_knowledge/__init__.py,tests/test_import.py}`
-- Create: `packages/oncall-graph/{pyproject.toml,src/oncall_graph/__init__.py,tests/test_import.py}`
-- Create: `packages/oncall-tools/{pyproject.toml,src/oncall_tools/__init__.py,tests/test_import.py}`
-- Create: `packages/oncall-service/{pyproject.toml,src/oncall_service/__init__.py,tests/test_import.py}`
-- Create: `packages/oncall-eval/{pyproject.toml,src/oncall_eval/__init__.py,tests/test_import.py}`
+- Create: `packages/oncall-knowledge/{pyproject.toml,src/oncall_knowledge/__init__.py,tests/test_import_knowledge.py}`
+- Create: `packages/oncall-graph/{pyproject.toml,src/oncall_graph/__init__.py,tests/test_import_graph.py}`
+- Create: `packages/oncall-tools/{pyproject.toml,src/oncall_tools/__init__.py,tests/test_import_tools.py}`
+- Create: `packages/oncall-service/{pyproject.toml,src/oncall_service/__init__.py,tests/test_import_service.py}`
+- Create: `packages/oncall-eval/{pyproject.toml,src/oncall_eval/__init__.py,tests/test_import_eval.py}`
 - Modify: `pyproject.toml` (add the five to dependencies and `[tool.uv.sources]`)
 
 **Interfaces:**
@@ -625,12 +630,40 @@ oncall-eval = { workspace = true }
 
 - [ ] **Step 6: Add the per-package import smoke tests**
 
-In each of the five packages create `tests/test_import.py`, substituting the module name:
+One per package, each with a **unique basename** so a failure in CI output names the
+package without expanding the path:
+
+| File | Body |
+|---|---|
+| `packages/oncall-knowledge/tests/test_import_knowledge.py` | `import oncall_knowledge` |
+| `packages/oncall-graph/tests/test_import_graph.py` | `import oncall_graph` |
+| `packages/oncall-tools/tests/test_import_tools.py` | `import oncall_tools` |
+| `packages/oncall-service/tests/test_import_service.py` | `import oncall_service` |
+| `packages/oncall-eval/tests/test_import_eval.py` | `import oncall_eval` |
+
+Each file is the same two lines, substituting the module:
 
 ```python
 def test_module_imports():
     import oncall_knowledge  # noqa: F401
 ```
+
+Do **not** name them all `test_import.py`. With no `__init__.py` in the test directories,
+pytest's default import mode resolves each to the module `test_import`, the second one
+collides with the first, and collection aborts the entire suite:
+
+```
+import file mismatch: imported module 'test_import' has this __file__ attribute:
+  .../packages/oncall-knowledge/tests/test_import.py
+which is not the same as the test file we want to collect:
+  .../packages/oncall-graph/tests/test_import.py
+!!!! Interrupted: 1 error during collection !!!!
+```
+
+Adding `__init__.py` to each `tests/` directory does **not** fix this — verified. The
+ambiguity is at the package-root level, not the `tests/` level, so both resolve to
+`tests.test_import`. The root `pyproject.toml` sets `--import-mode=importlib`, which fixes
+the class of problem; unique basenames are for legible CI output.
 
 - [ ] **Step 7: Sync and run**
 
