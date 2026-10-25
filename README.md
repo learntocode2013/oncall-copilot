@@ -68,6 +68,11 @@ typed, allow-listed actions only.
 
 ## Getting started 🚧
 
+> **These commands do not work yet.** There is no `Makefile` in the repo — `make bootstrap`
+> will fail with *"No rule to make target"*. The scaffold is Task 6 of
+> `docs/superpowers/plans/2026-10-24-oncall-copilot-repo-scaffold.md` and has not been run.
+> This section describes the intended workflow; it goes live when that plan is executed.
+
 ```bash
 git clone --recurse-submodules git@github.com:learntocode2013/oncall-copilot.git
 cd oncall-copilot && make bootstrap
