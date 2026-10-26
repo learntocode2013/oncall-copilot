@@ -64,8 +64,14 @@ from oncall_contracts.state import IncidentState, Hypothesis
 def test_incident_state_has_the_fields_the_graph_needs():
     hints = IncidentState.__annotations__
     for field in (
-        "alert", "scope", "hypotheses", "evidence",
-        "plan", "proposed_action", "verification", "transcript",
+        "alert",
+        "scope",
+        "hypotheses",
+        "evidence",
+        "plan",
+        "proposed_action",
+        "verification",
+        "transcript",
     ):
         assert field in hints, f"IncidentState missing {field!r}"
 
@@ -75,9 +81,7 @@ def test_hypotheses_channel_accumulates():
     ann = IncidentState.__annotations__["hypotheses"]
     assert get_origin(ann) is Annotated, "hypotheses must be Annotated with a reducer"
     reducer = get_args(ann)[1]
-    assert reducer([{"service": "a"}], [{"service": "b"}]) == [
-        {"service": "a"}, {"service": "b"}
-    ]
+    assert reducer([{"service": "a"}], [{"service": "b"}]) == [{"service": "a"}, {"service": "b"}]
 
 
 def test_hypothesis_carries_evidence_and_confidence():
@@ -127,8 +131,12 @@ def test_record_carries_the_overhead_measures():
 
 def test_record_carries_the_outcome_measures():
     for field in (
-        "correct_root_cause", "root_cause_rank", "correct_action_proposed",
-        "verified_recovery", "harmful_actions", "rolled_back",
+        "correct_root_cause",
+        "root_cause_rank",
+        "correct_action_proposed",
+        "verified_recovery",
+        "harmful_actions",
+        "rolled_back",
     ):
         assert field in RunRecord.__annotations__, f"RunRecord missing {field!r}"
 
@@ -331,11 +339,11 @@ class RunRecord(TypedDict):
     latency_ms: int
 
     # Outcome side of E1.
-    correct_root_cause: bool          # top-1
-    root_cause_rank: int | None       # for top-3; None if never proposed
+    correct_root_cause: bool  # top-1
+    root_cause_rank: int | None  # for top-3; None if never proposed
     correct_action_proposed: bool
     verified_recovery: bool
-    harmful_actions: int              # target is zero
+    harmful_actions: int  # target is zero
     rolled_back: bool
 
     # Provenance, so a result can be tied to what produced it.
@@ -410,9 +418,7 @@ def test_package_is_importable(name):
 
 @pytest.mark.parametrize("name,expected", sorted(PACKAGES.items()))
 def test_declared_workspace_deps_match_the_design(name, expected):
-    data = tomllib.loads(
-        Path(f"packages/{name}/pyproject.toml").read_text(encoding="utf-8")
-    )
+    data = tomllib.loads(Path(f"packages/{name}/pyproject.toml").read_text(encoding="utf-8"))
     declared = {
         d.split(">")[0].split("=")[0].strip()
         for d in data["project"].get("dependencies", [])
@@ -439,9 +445,7 @@ def test_build_graph_can_select_any_of_the_three_e1_configurations():
 @pytest.mark.parametrize("name,expected", sorted(PACKAGES.items()))
 def test_each_sibling_dep_has_a_workspace_source(name, expected):
     """uv requires [tool.uv.sources] in the MEMBER, not just the root."""
-    data = tomllib.loads(
-        Path(f"packages/{name}/pyproject.toml").read_text(encoding="utf-8")
-    )
+    data = tomllib.loads(Path(f"packages/{name}/pyproject.toml").read_text(encoding="utf-8"))
     sources = set(data.get("tool", {}).get("uv", {}).get("sources", {}))
     assert sources == expected, f"{name}: sources {sources}, needs {expected}"
 ```
@@ -968,8 +972,7 @@ def test_every_case_declares_its_stratum_and_it_matches_the_manifest():
     import json
 
     faults = {
-        f["fault_id"]: f
-        for f in yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))["faults"]
+        f["fault_id"]: f for f in yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))["faults"]
     }
     for path in (ROOT / "eval" / "dev").glob("*.json"):
         case = json.loads(path.read_text(encoding="utf-8"))
@@ -1024,9 +1027,9 @@ from .config import Complexity
 
 class FaultSpec(TypedDict):
     fault_id: str
-    flags: list[str]                  # a list: two-faults-at-once is one case
+    flags: list[str]  # a list: two-faults-at-once is one case
     root_cause_services: list[str]
-    complexity: Complexity            # "multi" when more than one service
+    complexity: Complexity  # "multi" when more than one service
     correct_action: str
     detect_query: str
 ```
@@ -1267,7 +1270,9 @@ MCP_SERVERS = ["telemetry", "runbooks_kb", "tickets", "ops_actions"]
 def test_mcp_server_module_is_runnable(server):
     result = subprocess.run(
         [sys.executable, "-m", f"oncall_tools.servers.{server}", "--help"],
-        capture_output=True, text=True, timeout=60,
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     assert result.returncode == 0, result.stderr
     assert "--transport" in result.stdout
@@ -1276,7 +1281,9 @@ def test_mcp_server_module_is_runnable(server):
 def test_harness_cli_is_runnable():
     result = subprocess.run(
         [sys.executable, "-m", "oncall_eval.harness", "--help"],
-        capture_output=True, text=True, timeout=60,
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     assert result.returncode == 0, result.stderr
     assert "--fail-under" in result.stdout
@@ -1285,12 +1292,22 @@ def test_harness_cli_is_runnable():
 def test_mock_mode_needs_no_api_key(monkeypatch):
     """CI has no OPENROUTER_API_KEY, so without a mock mode the eval gate can
     only ever be a stub. Mock mode checks everything except the model."""
-    env = {k: v for k, v in __import__("os").environ.items()
-           if k != "OPENROUTER_API_KEY"}
+    env = {k: v for k, v in __import__("os").environ.items() if k != "OPENROUTER_API_KEY"}
     result = subprocess.run(
-        [sys.executable, "-m", "oncall_eval.harness", "--mock",
-         "--cases", "eval/dev", "--fail-under", "0.6"],
-        capture_output=True, text=True, timeout=120, env=env,
+        [
+            sys.executable,
+            "-m",
+            "oncall_eval.harness",
+            "--mock",
+            "--cases",
+            "eval/dev",
+            "--fail-under",
+            "0.6",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=env,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "mock" in result.stdout.lower()
@@ -1298,12 +1315,13 @@ def test_mock_mode_needs_no_api_key(monkeypatch):
 
 def test_live_mode_refuses_to_run_without_a_key():
     """Failing loudly beats a run that silently scores zero on auth errors."""
-    env = {k: v for k, v in __import__("os").environ.items()
-           if k != "OPENROUTER_API_KEY"}
+    env = {k: v for k, v in __import__("os").environ.items() if k != "OPENROUTER_API_KEY"}
     result = subprocess.run(
-        [sys.executable, "-m", "oncall_eval.harness",
-         "--cases", "eval/dev", "--fail-under", "0.6"],
-        capture_output=True, text=True, timeout=60, env=env,
+        [sys.executable, "-m", "oncall_eval.harness", "--cases", "eval/dev", "--fail-under", "0.6"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=env,
     )
     assert result.returncode == 2
     assert "OPENROUTER_API_KEY" in result.stdout + result.stderr
@@ -1316,9 +1334,19 @@ def test_mock_mode_fails_on_a_case_with_no_fixture(tmp_path):
         '{"case_id": "orphan", "fault_id": "payment-failure", "complexity": "single"}'
     )
     result = subprocess.run(
-        [sys.executable, "-m", "oncall_eval.harness", "--mock",
-         "--cases", str(tmp_path), "--fail-under", "0.6"],
-        capture_output=True, text=True, timeout=60,
+        [
+            sys.executable,
+            "-m",
+            "oncall_eval.harness",
+            "--mock",
+            "--cases",
+            str(tmp_path),
+            "--fail-under",
+            "0.6",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     assert result.returncode == 1
     assert "no fixture" in result.stdout.lower()
@@ -1328,15 +1356,28 @@ def test_mock_mode_catches_a_broken_run_record(tmp_path, monkeypatch):
     """Mock mode's job is to catch contract drift: a fixture missing a
     RunRecord field must fail, because that field is what the report groups by."""
     cases, fixtures = tmp_path / "cases", tmp_path / "fixtures"
-    cases.mkdir(); fixtures.mkdir()
+    cases.mkdir()
+    fixtures.mkdir()
     (cases / "c.json").write_text(
         '{"case_id": "c", "fault_id": "payment-failure", "complexity": "single"}'
     )
     (fixtures / "c.runrecord.json").write_text('{"case_id": "c"}')  # missing config_id
     result = subprocess.run(
-        [sys.executable, "-m", "oncall_eval.harness", "--mock",
-         "--cases", str(cases), "--fixtures", str(fixtures), "--fail-under", "0.6"],
-        capture_output=True, text=True, timeout=60,
+        [
+            sys.executable,
+            "-m",
+            "oncall_eval.harness",
+            "--mock",
+            "--cases",
+            str(cases),
+            "--fixtures",
+            str(fixtures),
+            "--fail-under",
+            "0.6",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     assert result.returncode == 1
     assert "config_id" in result.stdout
@@ -1506,10 +1547,17 @@ from oncall_contracts.runrecord import RunRecord
 # Fields the report groups by or reports; a fixture missing any of these would
 # let contract drift through to the day someone writes the eval report.
 REQUIRED_RECORD_FIELDS = (
-    "case_id", "config_id", "complexity",
-    "tool_calls", "tokens", "usd", "latency_ms",
-    "correct_root_cause", "correct_action_proposed",
-    "verified_recovery", "harmful_actions",
+    "case_id",
+    "config_id",
+    "complexity",
+    "tool_calls",
+    "tokens",
+    "usd",
+    "latency_ms",
+    "correct_root_cause",
+    "correct_action_proposed",
+    "verified_recovery",
+    "harmful_actions",
 )
 
 
@@ -1572,21 +1620,35 @@ def run_live(cases: list[Path], config: str, fail_under: float) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the evaluation harness.")
-    parser.add_argument("--cases", required=True, type=Path,
-                        help="directory of case files (eval/dev only in CI)")
-    parser.add_argument("--fail-under", required=True, type=float,
-                        help="minimum pass rate")
-    parser.add_argument("--mock", action="store_true",
-                        help="validate contracts against recorded fixtures; no model calls")
-    parser.add_argument("--fixtures", type=Path, default=Path("eval/fixtures"),
-                        help="recorded RunRecord fixtures for mock mode")
+    parser.add_argument(
+        "--cases", required=True, type=Path, help="directory of case files (eval/dev only in CI)"
+    )
+    parser.add_argument("--fail-under", required=True, type=float, help="minimum pass rate")
+    parser.add_argument(
+        "--mock",
+        action="store_true",
+        help="validate contracts against recorded fixtures; no model calls",
+    )
+    parser.add_argument(
+        "--fixtures",
+        type=Path,
+        default=Path("eval/fixtures"),
+        help="recorded RunRecord fixtures for mock mode",
+    )
     parser.add_argument("--run-id", default=None)
-    parser.add_argument("--config", default="c2_team",
-                        choices=["c0_workflow", "c1_single", "c2_team"],
-                        help="which E1 configuration to run")
-    parser.add_argument("--group-by", default=None, choices=["complexity"],
-                        help="stratify the report; required to support any "
-                             "claim that one topology wins only on some cases")
+    parser.add_argument(
+        "--config",
+        default="c2_team",
+        choices=["c0_workflow", "c1_single", "c2_team"],
+        help="which E1 configuration to run",
+    )
+    parser.add_argument(
+        "--group-by",
+        default=None,
+        choices=["complexity"],
+        help="stratify the report; required to support any "
+        "claim that one topology wins only on some cases",
+    )
     args = parser.parse_args(argv)
 
     cases = sorted(args.cases.glob("*.json"))
@@ -1598,8 +1660,11 @@ def main(argv: list[str] | None = None) -> int:
         return run_mock(cases, args.fixtures, args.group_by)
 
     if not os.getenv("OPENROUTER_API_KEY"):
-        print("OPENROUTER_API_KEY is not set. Use --mock for contract checks "
-              "without a model, or set the key for a live run.", file=sys.stderr)
+        print(
+            "OPENROUTER_API_KEY is not set. Use --mock for contract checks "
+            "without a model, or set the key for a live run.",
+            file=sys.stderr,
+        )
         return 2
 
     return run_live(cases, args.config, args.fail_under)
@@ -1702,8 +1767,18 @@ OVERLAY = ROOT / "deploy" / "compose.oncall.yaml"
 MAKEFILE = ROOT / "deploy" / "Makefile"
 
 DEMO_CLAIMED_PORTS = {
-    "8080", "8081", "8089", "8090", "8013", "8016",
-    "4000", "3000", "9090", "9200", "16686", "4317",
+    "8080",
+    "8081",
+    "8089",
+    "8090",
+    "8013",
+    "8016",
+    "4000",
+    "3000",
+    "9090",
+    "9200",
+    "16686",
+    "4317",
 }
 
 
@@ -1751,7 +1826,10 @@ def test_bootstrap_is_the_one_post_clone_command():
     text = MAKEFILE.read_text(encoding="utf-8")
     bootstrap = text.split("bootstrap:")[1].split("\nverify:")[0]
     for step, why in [
-        ("submodule update --init --recursive", "repairs a clone made without --recurse-submodules"),
+        (
+            "submodule update --init --recursive",
+            "repairs a clone made without --recurse-submodules",
+        ),
         ("cp .env.example .env", "a fresh clone has no .env"),
         ("OPENROUTER_API_KEY", "the one secret that cannot be provisioned"),
         ("uv sync", "the workspace must be installed"),
@@ -2084,10 +2162,21 @@ def test_rule_file_is_valid_promql():
     if not shutil.which("docker"):
         pytest.skip("docker required for promtool")
     result = subprocess.run(
-        ["docker", "run", "--rm", "-v", f"{RULES.parent}:/rules:ro",
-         "--entrypoint", "promtool", "quay.io/prometheus/prometheus:v3.13.3",
-         "check", "rules", "/rules/checkout.yaml"],
-        capture_output=True, text=True,
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{RULES.parent}:/rules:ro",
+            "--entrypoint",
+            "promtool",
+            "quay.io/prometheus/prometheus:v3.13.3",
+            "check",
+            "rules",
+            "/rules/checkout.yaml",
+        ],
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
