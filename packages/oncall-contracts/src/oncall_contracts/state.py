@@ -40,4 +40,3 @@ class IncidentState(TypedDict):
 
     # --- Output properties
     proposed_action: NotRequired[ProposedAction]
-
