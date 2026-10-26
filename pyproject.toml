@@ -1,0 +1,35 @@
+[project]
+name = "oncall-copilot"
+version = "0.1.0"
+description = "On-Call Copilot — agentic incident response for the OTel Astronomy Shop"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "oncall-contracts",
+]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+oncall-contracts = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["packages", "tests"]
+# importlib mode keeps test directories off sys.path, so identically named test
+# modules in sibling packages do not collide. Without it, two files both named
+# tests/test_import.py abort the WHOLE run with "import file mismatch:
+# Interrupted: 1 error during collection" — not just that file. Verified.
+addopts = "--import-mode=importlib"
+pythonpath = []
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
