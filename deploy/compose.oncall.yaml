@@ -1,0 +1,36 @@
+# Our overlay onto the Astronomy Shop.
+#
+# LAYER 1: it carries only an upstream bug fix. Our own services
+# (incident-api, the four MCP servers) join here once their modules exist —
+# and each one's health check joins `make verify` in the SAME commit.
+#
+# Relative paths here must be ${ONCALL_ROOT}-rooted: Compose resolves
+# relative paths in EVERY -f file against the FIRST file's directory, which
+# is the demo repo, not ours. --project-directory cannot fix that without
+# breaking the demo's own paths.
+services:
+  # UPSTREAM BUG, pinned tag 3.1.0: the health check runs
+  #   nc -z localhost ${RECOMMENDATION_PORT}
+  # but `nc` is not in the image, so it fails with
+  #   /bin/sh: 1: nc: not found
+  # and can never pass. `frontend` requires recommendation to be
+  # service_healthy, so frontend and frontend-proxy never start and port
+  # 8080 stays unbound — the whole shop is unreachable.
+  #
+  # The service itself is fine. Verified inside the container:
+  #   bash -c 'echo > /dev/tcp/localhost/9001'  -> exit 0  (listening)
+  #   bash -c 'echo > /dev/tcp/localhost/9999'  -> exit 1  (control)
+  #
+  # This is upstream's own fix from main, which 3.1.0 predates. 3.1.0 is the
+  # newest tag, so there is nothing to bump to; main is 130 commits ahead and
+  # we keep the pin rather than trade a known bug for unknown ones.
+  # `bash` is at /usr/bin/bash; `sh` is dash and cannot do /dev/tcp, so the
+  # probe must invoke bash explicitly.
+  #
+  # REMOVE THIS once the pin moves to a release that includes the fix.
+  # Rationale and alternatives considered:
+  #   docs/decisions/0001-patch-recommendation-healthcheck.md
+  recommendation:
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/${RECOMMENDATION_PORT}'"]
+      start_period: 20s

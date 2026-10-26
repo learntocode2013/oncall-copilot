@@ -1,8 +1,8 @@
 # Demo lifecycle. LAYER 1: the Astronomy Shop only.
 #
-# Our own services (incident-api, the four MCP servers) are not here yet
-# because the modules they run do not exist. When they land, add
-# -f deploy/compose.oncall.yaml to COMPOSE and add their checks to `verify`
+# deploy/compose.oncall.yaml is in the list, but in Layer 1 it carries only
+# an upstream health-check fix — none of our own services. When
+# incident-api and the MCP servers join it, add their checks to `verify`
 # IN THE SAME COMMIT. A target that asserts something which does not exist
 # teaches everyone to ignore it.
 
@@ -20,7 +20,8 @@ COMPOSE := cd $(ONCALL_ROOT) && docker compose \
 	     --env-file .env \
 	     -f $(DEMO)/compose.yaml \
 	     -f $(DEMO)/compose.full.yaml \
-	     -f $(DEMO)/compose.observability.yaml
+	     -f $(DEMO)/compose.observability.yaml \
+	     -f deploy/compose.oncall.yaml
 
 .PHONY: help bootstrap preflight up stop down reset config verify urls reload-rules
 
