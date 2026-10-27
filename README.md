@@ -8,17 +8,25 @@ Agentic AI Capstone — Project 4 (IT operations, "production" family). Team of 
 
 ---
 
-## Status: design complete, scaffold not yet built
+## Status
 
-Right now this repo contains **two documents and no code**. Read them in this order:
+**The shop runs. The agent does not exist yet.**
+
+| Works today | Not built yet |
+|---|---|
+| `make bootstrap` / `up` / `down` / `verify` — the full Astronomy Shop with Prometheus, Grafana, Jaeger and OpenSearch | The incident API and UI (`localhost:8000`) |
+| `oncall-contracts` — `IncidentState`, `Topology`, `Complexity`, `RunRecord` | The four MCP servers |
+| `make test` / `make lint` | The incident commander and its specialists |
+| | Runbooks, the fault injector, the eval harness |
+| | `make guards` — fails until `tests/test_guards.py` exists |
+
+Background reading, in this order:
 
 | Read | What it gives you |
 |---|---|
-| `docs/superpowers/specs/2026-10-24-oncall-copilot-repo-structure-design.md` | Why the repo is shaped the way it is — four decisions, the dependency rules, and a **Verified facts** section recording what we established by running things rather than assuming |
-| `docs/superpowers/plans/2026-10-24-oncall-copilot-repo-scaffold.md` | Nine step-by-step tasks that build the scaffold. Someone executes this before anyone starts on their own component |
-
-Everything below describes the repo **as it will be once the plan's nine tasks are done**.
-Commands marked 🚧 do not work yet.
+| `docs/superpowers/specs/2026-10-24-oncall-copilot-repo-structure-design.md` | Why the repo is shaped this way — four decisions, the dependency rules, and a **Verified facts** section recording what we established by running things rather than assuming |
+| `docs/superpowers/plans/2026-10-24-oncall-copilot-repo-scaffold.md` | Nine step-by-step tasks that build the rest of the scaffold |
+| `docs/decisions/` | Dated ADRs. Two so far, both patches to the pinned demo, both with reproductions and measurements |
 
 ---
 
@@ -66,48 +74,97 @@ typed, allow-listed actions only.
 
 ---
 
-## Getting started 🚧
+## Getting started
 
-> **These commands do not work yet.** There is no `Makefile` in the repo — `make bootstrap`
-> will fail with *"No rule to make target"*. The scaffold is Task 6 of
-> `docs/superpowers/plans/2026-10-24-oncall-copilot-repo-scaffold.md` and has not been run.
-> This section describes the intended workflow; it goes live when that plan is executed.
+### First time — once
 
 ```bash
 git clone --recurse-submodules git@github.com:learntocode2013/oncall-copilot.git
-cd oncall-copilot && make bootstrap
+cd oncall-copilot
+make bootstrap
 ```
 
-That is the whole setup. `make bootstrap` initialises the submodule, creates `.env` from the
-example, runs `uv sync`, starts the shop with its telemetry backends plus our four MCP servers
-and the incident API, waits until they are healthy, then checks three endpoints and prints the
-URLs below.
+That is the whole setup. `make bootstrap` runs six things in order:
 
-**It will stop once, on purpose.** `OPENROUTER_API_KEY` is the one thing that cannot be
-committed, so the first run on a clean machine halts with a single instruction: add the key to
-`.env`. Re-run `make bootstrap` and it completes.
+1. `git submodule update --init --recursive` — fetches the pinned demo at `3.1.0`
+2. creates `.env` from `.env.example` if it is missing
+3. warns (does not stop) if `OPENROUTER_API_KEY` is empty — nothing calls a model yet
+4. `uv sync` — installs the Python workspace
+5. `docker compose up --wait` — starts the stack and waits for every container to be healthy
+6. `verify` + `urls` — curls the health endpoints and prints where everything is
 
-`make bootstrap` is **idempotent** — re-run it whenever you want. It never clobbers an existing
-`.env`, and it repairs a clone made without `--recurse-submodules`, so forgetting that flag
-costs you nothing.
+**Forgot `--recurse-submodules`?** Step 1 repairs it. That failure mode is gone.
 
-First run pulls and builds roughly 25 images. If it exceeds the 600-second health-wait, just run
-it again: everything is cached and the second pass is quick.
+First run pulls and builds ~25 images — several minutes. If it exceeds the 600-second
+health-wait, just run it again: everything is cached and the second pass is quick.
+`make bootstrap` is idempotent, so re-running it is always safe and never clobbers your `.env`.
 
-Needs roughly **6 GB RAM** and **14 GB disk**, plus Docker Compose v2. If your laptop cannot
-hold it, the sanctioned fallback is a four-service FastAPI shop with faults injected via
-Toxiproxy — but raise it in week 0, because it changes what the telemetry tools talk to.
+### Every day after
+
+```bash
+make up          # start — about 30s once images are cached
+#  ... work ...
+make down        # stop and clean up
+```
+
+Or `make stop` / `make up` to pause and resume in seconds with telemetry data intact.
+
+### After you pull — run `bootstrap`, not `up`
+
+```bash
+git pull
+make bootstrap
+```
+
+`make up` does **not** run `uv sync` and does **not** update the submodule. So after pulling a
+teammate's changes, `make up` alone will miss:
+
+- a new workspace package → `ModuleNotFoundError` when you import it
+- a moved submodule pin → you are silently on the old demo version, and your evaluation
+  numbers are no longer comparable to everyone else's
+
+`bootstrap` reconciles both, and costs nothing when nothing changed.
+
+### Full vs minimal mode
+
+Default is **full** — 30 services. **Minimal** drops `accounting`, `fraud-detection` and
+`kafka` (27 services).
+
+```bash
+make up MODE=minimal                       # one-off
+
+echo 'MODE := minimal' > deploy/local.mk   # or set it once per machine
+make up                                    # now minimal, no flag needed
+```
+
+`deploy/local.mk` is gitignored, so each laptop keeps its own choice. A command-line
+`MODE=` always wins over the file, and anything other than `full` or `minimal` is rejected.
+
+**Pass the same `MODE` to `down` as you gave `up`** — `down` can only remove what its file
+list declares. Setting `local.mk` once avoids the whole class of mistake.
+
+**Try full first.** Minimal costs you the `kafkaQueueProblems` fault family and two
+diagnosable services, and it saves less than you would think: measured on this stack, full
+mode's actual working set was **3.75 GiB of a 7.748 GiB Docker VM**. The one thing that did
+break was a per-service 20 MiB ceiling, not host memory — see
+[ADR-0002](docs/decisions/0002-raise-product-catalog-memory-ceiling.md). Measure before
+assuming you need minimal.
+
+Needs **Docker Compose v2**, ~14 GB disk, and a Docker VM with at least ~6 GB. If your laptop
+truly cannot hold it, the sanctioned fallback is a four-service FastAPI shop with faults
+injected via Toxiproxy — but raise it in week 0, because it changes what the telemetry tools
+talk to.
 
 ### Where things are
 
 | Surface | URL |
 |---|---|
-| Incident UI (ours) | http://localhost:8000 |
 | Web store | http://localhost:8080/ |
 | Grafana | http://localhost:8080/grafana/ |
 | Jaeger | http://localhost:8080/jaeger/ui/ |
 | **Feature flags** (your fault switch) | http://localhost:8080/feature |
 | Prometheus | http://localhost:9090 |
+| _Incident UI (ours)_ | _`localhost:8000` — not built yet_ |
 
 ### Your first five minutes with the stack
 
@@ -129,13 +186,15 @@ successes), and the frontend's HTTP series carry **no `http_route` label**, so a
 
 ---
 
-## Commands 🚧
+## Commands
 
 | Command | What it does |
 |---|---|
-| `make bootstrap` | **The one post-clone command.** Submodule, `.env`, `uv sync`, start, health-wait, URLs. Idempotent |
-| `make up` | Start everything, assuming bootstrap already ran once |
-| `make verify` | Curl the three health endpoints — our clean-machine install evidence |
+| `make help` | List every target |
+| `make bootstrap` | **After a clone, and after every pull.** Submodule, `.env`, `uv sync`, start, health-wait, URLs. Idempotent |
+| `make up` | Daily start. Preflight, then up and wait for health |
+| `make preflight` | Name anything a fresh clone is missing, and print the current `MODE` |
+| `make verify` | Curl the health endpoints — our clean-machine install evidence |
 | `make urls` | Print the URL table |
 | `make stop` | Halt containers, keep data — `make up` resumes in seconds |
 | `make down` | Remove containers, keep volumes |
@@ -143,9 +202,9 @@ successes), and the frontend's HTTP series carry **no `http_route` label**, so a
 | `make config` | Render the merged Compose config — how you check an overlay change took effect |
 | `make reload-rules` | Apply edited Prometheus alert rules without a restart |
 | `make test` | Whole test suite |
-| `make guards` | Just the structural guards (see below) |
+| `make guards` | Just the structural guards — **fails until Task 3 creates them** |
 | `make lint` | ruff check + format check |
-| `make docs` | Build the submission PDFs |
+| `make docs` | Build the submission PDFs — **not built yet** (Task 9) |
 
 **`down` must take the same `-f` list as `up`.** A bare `docker compose down` orphans 5 of 25
 containers — your whole telemetry backend keeps running. That is why the file list lives in one

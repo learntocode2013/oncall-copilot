@@ -11,6 +11,33 @@ export ONCALL_ROOT
 
 DEMO := vendor/opentelemetry-demo
 
+# MODE=full (default) or MODE=minimal.
+#
+# minimal omits compose.full.yaml, which drops `accounting`,
+# `fraud-detection` and `kafka` — 30 services down to 27. Measured on this
+# stack: full mode's actual working set was 3.37 GiB, and the three dropped
+# services account for ~1 GiB of declared caps, so expect ~2.8 GiB. Upstream's
+# ~6 GiB / ~3 GiB figures are Docker VM allocation, not working set.
+#
+# COST: minimal removes the `kafkaQueueProblems` fault family and two
+# diagnosable services from the fault taxonomy. Development on minimal is
+# fine. EVALUATION MUST RUN ON FULL — otherwise scored runs and tuning runs
+# measure different systems, which is the whole reason the submodule is
+# pinned (see docs/decisions/0001-*).
+#
+# Set it per machine in deploy/local.mk (gitignored) so you choose once:
+#   echo 'MODE := minimal' > deploy/local.mk
+-include local.mk
+MODE ?= full
+
+ifeq ($(MODE),minimal)
+FULL_OVERLAY :=
+else ifeq ($(MODE),full)
+FULL_OVERLAY := -f $(DEMO)/compose.full.yaml
+else
+$(error MODE must be 'full' or 'minimal', got '$(MODE)')
+endif
+
 # One definition of the file list. `down` MUST take the same -f list as `up`:
 # measured on a running stack, a bare `docker compose down` removed 20 of 25
 # containers and silently orphaned Prometheus, Grafana, Jaeger and OpenSearch.
@@ -19,7 +46,7 @@ COMPOSE := cd $(ONCALL_ROOT) && docker compose \
 	     --env-file $(DEMO)/.env.override \
 	     --env-file .env \
 	     -f $(DEMO)/compose.yaml \
-	     -f $(DEMO)/compose.full.yaml \
+	     $(FULL_OVERLAY) \
 	     -f $(DEMO)/compose.observability.yaml \
 	     -f deploy/compose.oncall.yaml
 
@@ -34,6 +61,8 @@ help:
 	@echo "config     render the merged compose config"
 	@echo "verify     curl the health endpoints"
 	@echo "urls       print where everything is"
+	@echo ""
+	@echo "MODE=$(MODE)  (full|minimal; set in deploy/local.mk)"
 
 # The one post-clone command. Idempotent: re-run it whenever.
 bootstrap:
@@ -61,7 +90,8 @@ preflight:
 	  echo "ERROR: .env not found."; \
 	  echo "  Run: cp .env.example .env"; exit 1; }
 	@test -n "$(ONCALL_ROOT)" || { echo "ERROR: ONCALL_ROOT is empty."; exit 1; }
-	@echo "preflight OK (ONCALL_ROOT=$(ONCALL_ROOT))"
+	@echo "preflight OK  MODE=$(MODE)  ONCALL_ROOT=$(ONCALL_ROOT)"
+	@test "$(MODE)" = "full" || echo "  NOTE: minimal mode — no kafka, so the kafkaQueueProblems fault family is unavailable. Evaluation runs need MODE=full."
 
 up: preflight
 	$(COMPOSE) up --force-recreate --remove-orphans --detach --wait --wait-timeout 600
