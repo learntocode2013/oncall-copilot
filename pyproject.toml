@@ -33,3 +33,7 @@ pythonpath = []
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# vendor/ is the pinned OpenTelemetry demo submodule — ~7500 files of someone
+# else's code. Without this, `ruff check .` reports 118 errors in it and
+# `make lint` fails on a clean clone. Not ours to lint or format.
+extend-exclude = ["vendor"]
