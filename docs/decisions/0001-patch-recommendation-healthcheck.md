@@ -125,17 +125,21 @@ must check whether the patch is still needed.
 **To revisit:** when a release after `3.1.0` ships containing upstream's fix, move the pin and
 delete the override. `deploy/compose.oncall.yaml` carries a `REMOVE THIS` marker pointing here.
 
-## Related, unresolved
+## Related — now resolved in ADR-0002
 
-`product-catalog` was also unhealthy on the first run (nothing listening on `:3550`, CPU at
-0.03%, so blocked rather than spinning). It **resolved on its own** after a clean
-`--force-recreate` and is not addressed by this ADR. It was not root-caused; the most likely
-explanation is startup timing against `astronomy-db`, whose health gate had only just opened.
-**It may recur.**
+`product-catalog` was also unhealthy on the first run and was recorded here as not
+root-caused, with startup timing against `astronomy-db` as the guess. **That guess was wrong.**
 
-Investigation was blocked because the container is distroless and read-only (no shell) and the
-demo ships logs via OTLP to OpenSearch rather than stdout — and OpenSearch is published on a
-random host port, not a fixed one. If it recurs, publish OpenSearch on a fixed port first.
+It is a Go GC death spiral: a 20M container cap with `GOMEMLIMIT=16MiB` against a ~28 MiB
+working set, so the runtime collects continuously instead of being OOM-killed and never binds
+its port. See [ADR-0002](0002-raise-product-catalog-memory-ceiling.md) for the measurements
+(623% CPU → 5.37%) and the fix.
+
+Worth recording why it took two passes: `OOMKilled: false`, `RestartCount: 0` and
+`ExitCode: 0` all looked reassuring, and a single CPU sample of 0.03% — taken while the process
+was blocked rather than collecting — led us to dismiss memory. The container is also distroless
+and read-only, so there is no shell to investigate from, and its logs go via OTLP to an
+OpenSearch published on a random host port. `docker stats` was what finally showed it.
 
 Worth noting for the agent's own design: *a service that is started but unhealthy, with no
 stdout logs, whose only evidence lives in OpenSearch* is exactly the incident the On-Call

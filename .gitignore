@@ -11,3 +11,6 @@ __pycache__/
 artifacts/
 docs/submission/
 scratch/
+
+# per-machine make overrides (MODE=minimal etc.)
+deploy/local.mk

@@ -34,3 +34,31 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/${RECOMMENDATION_PORT}'"]
       start_period: 20s
+
+  # UPSTREAM BUG, pinned tag 3.1.0: product-catalog ships a 20M container cap
+  # with GOMEMLIMIT=16MiB, but its real working set is ~28 MiB. GOMEMLIMIT is a
+  # SOFT limit, so instead of being OOM-killed the Go runtime garbage-collects
+  # continuously trying to stay under a ceiling it cannot fit beneath. It burns
+  # cores making no forward progress and never binds :3550, so its health check
+  # never passes.
+  #
+  # Measured, before and after raising the ceiling:
+  #   before:  unhealthy (failing streak 45)   CPU 623%    mem 16.89/20 MiB (84%)
+  #   after:   healthy                         CPU 2.83%   mem 27.69/128 MiB
+  #
+  # A 220x CPU reduction. The symptom is intermittent — startup sometimes won
+  # the race — which is why it appeared to "recover" on a recreate.
+  #
+  # 64M/48MiB keeps upstream's ~80% GOMEMLIMIT-to-cap ratio while clearing the
+  # ~28 MiB the service actually needs.
+  #
+  # Rationale and alternatives considered:
+  #   docs/decisions/0002-raise-product-catalog-memory-ceiling.md
+  # REMOVE THIS once upstream raises the limit.
+  product-catalog:
+    environment:
+      - GOMEMLIMIT=48MiB
+    deploy:
+      resources:
+        limits:
+          memory: 64M
