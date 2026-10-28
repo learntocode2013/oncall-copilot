@@ -3,8 +3,8 @@ kind: cause
 fault_id: failed-readiness-probe
 service: cart
 symptom: cart reported unhealthy while continuing to serve requests
-fix: set_flag(flag=failedReadinessProbe, value=false)
-rollback: set_flag(flag=failedReadinessProbe, value=true)
+fix: set_flag(flag=failedReadinessProbe, variant="off")
+rollback: set_flag(flag=failedReadinessProbe, variant="on")
 severity: sev3
 preconditions:
   - the flagd failedReadinessProbe flag is enabled
@@ -67,13 +67,13 @@ and several images are distroless and read-only, so there is no shell to investi
 ## Fix
 
 ```
-set_flag(flag=failedReadinessProbe, value=false)
+set_flag(flag=failedReadinessProbe, variant="off")
 ```
 
 **Expected effect:** the container's health state returns to `healthy` within a few probe
 intervals. Request success rate should not change, because it was never affected.
 
-**Rollback:** `set_flag(flag=failedReadinessProbe, value=true)`.
+**Rollback:** `set_flag(flag=failedReadinessProbe, variant="on")`.
 
 ## Severity
 

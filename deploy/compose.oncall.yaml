@@ -62,3 +62,23 @@ services:
       resources:
         limits:
           memory: 64M
+
+  # Own the flag file instead of writing into the pinned submodule.
+  #
+  # Upstream mounts ./src/flagd into both flagd and flagd-ui, and the UI WRITES
+  # to it — so every fault injection would dirty vendor/opentelemetry-demo and
+  # make `git submodule status` permanently modified. The pin would stop
+  # meaning anything.
+  #
+  # Compose merges volumes by mount target, so these replace the upstream
+  # mounts rather than adding to them. Confirm with `make config`.
+  #
+  # deploy/flagd/demo.flagd.json is our versioned baseline. P4's fault
+  # injector edits THIS file; flagd hot-reloads it.
+  flagd:
+    volumes:
+      - ${ONCALL_ROOT:?set ONCALL_ROOT to the repo root}/deploy/flagd:/etc/flagd
+
+  flagd-ui:
+    volumes:
+      - ${ONCALL_ROOT:?set ONCALL_ROOT to the repo root}/deploy/flagd:/app/data

@@ -3,8 +3,8 @@ kind: cause
 fault_id: payment-failure
 service: payment
 symptom: checkout returns HTTP 422 and payment transactions stop
-fix: set_flag(flag=paymentFailure, value=false)
-rollback: set_flag(flag=paymentFailure, value=true)
+fix: set_flag(flag=paymentFailure, variant="off")
+rollback: set_flag(flag=paymentFailure, variant="100%")
 severity: sev1
 preconditions:
   - the flagd paymentFailure flag is enabled
@@ -48,6 +48,26 @@ sum(rate(http_server_request_duration_seconds_count{
     + sum(rate(demo_payment_transactions_total[5m])) )
 ```
 
+## Open discrepancy: the 422 metric did not reproduce
+
+The expression above was measured at `1.0` on a long-running stack with `paymentFailure`
+enabled. On a freshly started stack it returned **no data in every phase**, including
+`paymentFailure` at `100%` — the `http_response_status_code="422"` series did not exist at all.
+
+Possible explanations, none confirmed:
+
+- the load generator's checkout rate is low, so a 2-minute window caught no failing checkout
+- the series only materialises after the first 422, and none occurred in the sample
+- the failure surfaces as a different status code on a fresh stack
+
+**This matters beyond the runbook.** `deploy/prometheus/rules/checkout.yaml` alerts on this
+expression. If the series does not exist under a real fault, the rule cannot fire, and the
+first demo scene — alert fires, agent investigates — has nothing to trigger it.
+
+**Resolve before relying on the alert path:** enable `paymentFailure` at `100%`, drive real
+checkout traffic, and confirm `http_server_request_duration_seconds_count{service_name="frontend",
+http_response_status_code="422"}` appears in Prometheus at all.
+
 ## Localisation
 
 **Metrics establish that checkout is broken. They do not say why.**
@@ -63,13 +83,17 @@ table — and note that row is still marked unverified.
 ## Fix
 
 ```
-set_flag(flag=paymentFailure, value=false)
+set_flag(flag=paymentFailure, variant="off")
 ```
 
 **Expected effect:** `rate(demo_payment_transactions_total[5m])` returns above zero within
 about two minutes, and the 422 rate falls to zero.
 
-**Rollback:** `set_flag(flag=paymentFailure, value=true)`.
+**Rollback:** `set_flag(flag=paymentFailure, variant="100%")`.
+
+`paymentFailure` is a **percentage** flag — its variants are `off`, `10%`, `25%`, `50%`,
+`75%`, `90%` and `100%`. There is no `on`. Setting an invalid variant does not error: the
+flag simply never fires, and a run looks like a healthy system. Verified the hard way.
 
 **Verification is not optional.** Confirm recovery in the success counter, not in the absence
 of errors — the absence of 422s is also what an idle shop looks like.
