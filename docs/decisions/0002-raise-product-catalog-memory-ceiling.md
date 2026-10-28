@@ -1,4 +1,4 @@
-# ADR-0002: Raise product-catalog's memory ceiling in our overlay
+# ADR-0002: Raise the Go services' memory ceilings in our overlay
 
 **Status:** Accepted
 **Date:** 2026-10-27
@@ -129,9 +129,67 @@ was 3.75 GiB against a 7.748 GiB VM. Since the real constraint was a per-service
 than total memory, teammates should run `MODE=full` and measure before assuming they need
 minimal.
 
+## Amendment, 2026-10-28: it is not one service
+
+`checkout` has the identical defect, and five services share the 20 MiB cap:
+`checkout`, `currency`, `product-catalog`, `shipping` and `valkey-cart`.
+
+**Scope deliberately limited to the two Go services.** Only `checkout` and `product-catalog`
+declare `GOMEMLIMIT`; `currency` and `shipping` have no soft memory limit, so they cannot
+exhibit a GC spiral, and `valkey-cart` is Redis. Raising their caps would be speculative.
+`currency` is worth watching at 69% of its cap under load, but 69% without a soft limit is
+headroom, not a spiral.
+
+### Why checkout's version is worse
+
+Measured at 25 concurrent users: `mem 19.14/20 MiB (95.68%)  cpu 267.80%`.
+
+Every order passes through `checkout`, so the stall does not merely degrade one service — it
+breaks the observability of the failure:
+
+```
+heap reaches GOMEMLIMIT -> continuous GC, 268% CPU -> requests stall
+  -> Envoy returns 504 (the frontend never responded)
+  -> NO http_server_request_duration_seconds_count sample is recorded
+  -> the 422 series never increments
+  -> deploy/prometheus/rules/checkout.yaml can never fire
+```
+
+Locust confirmed the shape: `POST /api/checkout` failed **504 × 93**, 500 × 22, 422 × 3.
+
+This was found while investigating why the 422 series was missing. **The alert rule was never
+wrong** — the shop was too broken to produce the error the rule alerts on. A failure severe
+enough to stall the request is invisible to a status-code metric, because no status code is
+ever emitted.
+
+### Consequence for the alert rule
+
+`deploy/prometheus/rules/checkout.yaml` keys on 422 alone. A payment fault can surface as
+**422, 500, or 504-with-no-metric** depending on how degraded checkout is, so the rule
+currently catches only the healthiest failure mode. Reconsider: match `4..|5..` at the
+frontend, and treat the collapse in `demo_payment_transactions_total` as the primary signal —
+that was visible in every phase of every experiment, including the ones where no status code
+appeared at all.
+
+### Validation of the original choice
+
+`product-catalog` reached **33.91 MiB** under 25-user load, above the ~28 MiB measured at
+5 users. The 64 MiB ceiling holds; a 32 MiB one would have reintroduced the bug under load.
+
+### Unrelated noise found at the same time
+
+Locust reports `POST /prompt` failing 288 times with `gaierror 'Name or service not known'`.
+Its scenario includes the demo's AI-agent flow, which lives in `compose.agent.yaml` — an
+overlay we do not include. There is therefore a permanently failing request class in every run
+that would pollute any aggregate error-rate metric. Either include that overlay or document it
+as expected.
+
 ## Action Items
 
 1. [x] Override `product-catalog` memory and `GOMEMLIMIT` in `deploy/compose.oncall.yaml`
+1. [x] Same override for `checkout` (amendment, 2026-10-28)
+1. [ ] Revisit the checkout alert rule: 422 alone misses 504 and 500
+1. [ ] Watch `currency` at 69% of its 20 MiB cap; no `GOMEMLIMIT`, so not the same defect
 2. [x] Verify at `64M` / `48MiB`: healthy, CPU 5.37%, 0 unhealthy containers
 3. [x] Update ADR-0001's unresolved item to point here
 4. [ ] Report upstream to `open-telemetry/opentelemetry-demo` — we have a clean reproduction

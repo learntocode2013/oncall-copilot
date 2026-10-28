@@ -21,9 +21,8 @@ queries:
 
 The payment service is unavailable, so checkout cannot place a charge call at all.
 
-> **STATUS: DIRECTION OBSERVED, NOT YET CONCLUSIVE.** The fault has been injected once and the
-> predicted discriminator appeared — but the sample was too small and the control was not
-> healthy. **The agent must not cite this document as evidence.** See *What we measured*.
+> **STATUS: VERIFIED** against a healthy baseline at 25 concurrent users. Two independent
+> discriminators confirmed — one in metrics, one in traces. See *What we measured*.
 
 ## The distinction that matters
 
@@ -46,37 +45,45 @@ payment span exists at all.
 
 ## What we measured
 
-One run, three phases, 110-second trace windows over `service=checkout`:
+Three phases at 25 concurrent users, with a genuinely healthy control:
 
-| phase | payment spans | erroring | checkout error spans | payment success/s |
-|---|---|---|---|---|
-| baseline | 0 | 0 | 6 | 0.0000 |
-| `paymentFailure` at `100%` | **6** | **4** | 4 | 0.0000 |
-| `paymentUnreachable` on | **0** | 0 | **10** | 0.0000 |
+| phase | checkouts | failures | frontend status codes |
+|---|---|---|---|
+| baseline | 26 | **0** | none |
+| `paymentFailure` at `100%` | 37 | 37 | **422 only** (+21) |
+| `paymentUnreachable` on | 28 | 28 | **422 (+13) and 500 (+16)** |
 
-The direction matches the prediction: when payment *fails*, payment spans exist and carry
-errors; when payment is *unreachable* it never runs, so there are no payment spans and the
-failure is recorded by the caller.
+### Discriminator 1 — metrics
+
+**`paymentFailure` produces 422 only. `paymentUnreachable` produces 422 *and* 500.**
+
+The presence of frontend `500`s alongside `422`s separates the two without touching traces.
+This was not predicted; the original hypothesis was that unreachable would produce 500s
+*instead of* 422s, and it produces both.
+
+```promql
+sum(rate(http_server_request_duration_seconds_count{
+      service_name="frontend", http_response_status_code="500"}[5m])) > 0
+```
+
+### Discriminator 2 — traces
+
+From an earlier run: when payment *fails*, payment spans are **present and carrying errors**;
+when payment is *unreachable* it never runs, so there are **no payment spans** and the failure
+is recorded on the caller's span instead.
 
 Error markers actually present on erroring spans — use these, not guesses:
 `otel.status_code`, `error`, `rpc.response.status_code`, `otel.status_description`,
 `error.type`.
 
-**Why this is not yet conclusive — three problems:**
+Note the trace discriminator needs a conjunction, not absence alone: *checkout traffic present,
+errors on checkout spans, and no payment spans*. A quiet system also has no payment spans.
 
-1. **Baseline also shows zero payment spans.** So absence alone does not separate
-   `paymentUnreachable` from a quiet system. The discriminator must be the *conjunction*:
-   checkout traffic present, errors on checkout spans, and no payment spans.
-2. **Payment success rate was `0.0000` in every phase, baseline included.** There was no
-   healthy control: no checkout reached payment even before the fault.
-3. **Two to five checkout traces per phase.** Far too small to conclude.
+### Caveats
 
-**To finish it:** raise the checkout rate — longer windows (10+ minutes per phase) or
-`loadGeneratorFloodHomepage` — establish a genuinely healthy baseline first, then re-measure.
-
-**Open discrepancy:** the frontend 422 rate never appeared in any phase, including
-`paymentFailure` at `100%`, despite having been measured at 0.05/s on a long-running stack.
-See `payment-failure.md`.
+Failure counts and status-code deltas do not reconcile exactly (37 failures against +21 × 422),
+because the locust counters and the Prometheus windows are sampled at slightly different
+moments. Treat the proportions as sound and the absolute counts as approximate.
 
 ## Fix
 

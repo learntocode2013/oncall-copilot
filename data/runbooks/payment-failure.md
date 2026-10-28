@@ -48,25 +48,26 @@ sum(rate(http_server_request_duration_seconds_count{
     + sum(rate(demo_payment_transactions_total[5m])) )
 ```
 
-## Open discrepancy: the 422 metric did not reproduce
+## Resolved: why the 422 series was once missing
 
-The expression above was measured at `1.0` on a long-running stack with `paymentFailure`
-enabled. On a freshly started stack it returned **no data in every phase**, including
-`paymentFailure` at `100%` — the `http_response_status_code="422"` series did not exist at all.
+On a freshly started stack the `http_response_status_code="422"` series did not exist at all,
+even with `paymentFailure` at `100%`. **The cause was not the metric or the rule.**
 
-Possible explanations, none confirmed:
+`checkout` ships a 20 MiB cap with `GOMEMLIMIT=16MiB`. Under load its heap reaches the soft
+limit and the Go runtime collects continuously — measured at **95.68% of cap and 268% CPU**.
+Requests stall, **Envoy returns 504 because the frontend never responded**, and a 504 generated
+by the proxy produces *no* `http_server_request_duration_seconds_count` sample at all. No
+status code is emitted, so the 422 series never increments.
 
-- the load generator's checkout rate is low, so a 2-minute window caught no failing checkout
-- the series only materialises after the first 422, and none occurred in the sample
-- the failure surfaces as a different status code on a fresh stack
+Locust confirmed the shape: `POST /api/checkout` failed **504 × 93**, 500 × 22, 422 × 3.
 
-**This matters beyond the runbook.** `deploy/prometheus/rules/checkout.yaml` alerts on this
-expression. If the series does not exist under a real fault, the rule cannot fire, and the
-first demo scene — alert fires, agent investigates — has nothing to trigger it.
+After raising checkout's ceiling (see `docs/decisions/0002-*`), the same experiment produced a
+clean result — baseline 26 checkouts and **zero** failures, then 37 failures with **+21 × 422**.
 
-**Resolve before relying on the alert path:** enable `paymentFailure` at `100%`, drive real
-checkout traffic, and confirm `http_server_request_duration_seconds_count{service_name="frontend",
-http_response_status_code="422"}` appears in Prometheus at all.
+**The lesson for diagnosis:** a failure severe enough to stall the request is *invisible to
+status-code metrics*, because no status code is ever recorded. An error-rate alert that reads
+zero can mean "healthy" or "too broken to answer". Distinguish them with request *volume* and
+upstream 504s, not with the error ratio alone.
 
 ## Localisation
 
