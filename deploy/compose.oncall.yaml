@@ -62,3 +62,51 @@ services:
       resources:
         limits:
           memory: 64M
+
+  # Own the flag file instead of writing into the pinned submodule.
+  #
+  # Upstream mounts ./src/flagd into both flagd and flagd-ui, and the UI WRITES
+  # to it — so every fault injection would dirty vendor/opentelemetry-demo and
+  # make `git submodule status` permanently modified. The pin would stop
+  # meaning anything.
+  #
+  # Compose merges volumes by mount target, so these replace the upstream
+  # mounts rather than adding to them. Confirm with `make config`.
+  #
+  # deploy/flagd/demo.flagd.json is our versioned baseline. P4's fault
+  # injector edits THIS file; flagd hot-reloads it.
+  flagd:
+    volumes:
+      - ${ONCALL_ROOT:?set ONCALL_ROOT to the repo root}/deploy/flagd:/etc/flagd
+
+  flagd-ui:
+    volumes:
+      - ${ONCALL_ROOT:?set ONCALL_ROOT to the repo root}/deploy/flagd:/app/data
+
+  # SAME UPSTREAM BUG AS product-catalog, different service. See ADR-0002.
+  #
+  # checkout ships a 20M cap with GOMEMLIMIT=16MiB. Under load its heap reaches
+  # the soft limit and the Go runtime collects continuously instead of being
+  # OOM-killed. Measured at 25 concurrent users:
+  #   mem 19.14/20 MiB (95.68%)   cpu 267.80%
+  #
+  # The downstream effect is worse than for product-catalog, because every
+  # order passes through checkout:
+  #   stalled requests -> Envoy returns 504 (the frontend never responded)
+  #   -> NO http_server_request_duration_seconds_count sample is recorded
+  #   -> the 422 series never increments
+  #   -> deploy/prometheus/rules/checkout.yaml can never fire
+  #
+  # Locust confirmed the shape: POST /api/checkout failed 504 x93, 500 x22,
+  # 422 x3. The alert rule was never wrong — the shop was too broken to
+  # produce the error the rule alerts on.
+  #
+  # 64M/48MiB matches product-catalog and upstream's ~80% ratio.
+  # REMOVE THIS once upstream raises the limit.
+  checkout:
+    environment:
+      - GOMEMLIMIT=48MiB
+    deploy:
+      resources:
+        limits:
+          memory: 64M
