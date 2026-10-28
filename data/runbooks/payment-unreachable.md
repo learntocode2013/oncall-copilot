@@ -1,11 +1,20 @@
 ---
 kind: cause
 fault_id: payment-unreachable
+status: verified
 service: payment
 symptom: checkout fails and the payment service is unavailable
-fix: set_flag(flag=paymentUnreachable, variant="off")
-rollback: set_flag(flag=paymentUnreachable, variant="on")
 severity: sev1
+fix:
+  action: set_flag
+  args:
+    flag: "paymentUnreachable"
+    variant: "off"
+rollback:
+  action: set_flag
+  args:
+    flag: "paymentUnreachable"
+    variant: "on"
 preconditions:
   - the flagd paymentUnreachable flag is enabled
   - payment spans are ABSENT from checkout traces (if present but erroring, suspect payment-failure)

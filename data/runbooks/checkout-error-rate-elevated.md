@@ -1,5 +1,6 @@
 ---
 kind: symptom
+status: structural
 service: checkout
 symptom: checkout error rate elevated, orders not completing
 severity: sev1

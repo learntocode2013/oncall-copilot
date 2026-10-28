@@ -1,11 +1,20 @@
 ---
 kind: cause
 fault_id: product-catalog-failure
+status: structural
 service: product-catalog
 symptom: product pages fail to load for specific products
-fix: set_flag(flag=productCatalogFailure, variant="off")
-rollback: set_flag(flag=productCatalogFailure, variant="on")
 severity: sev2
+fix:
+  action: set_flag
+  args:
+    flag: "productCatalogFailure"
+    variant: "off"
+rollback:
+  action: set_flag
+  args:
+    flag: "productCatalogFailure"
+    variant: "on"
 preconditions:
   - the flagd productCatalogFailure flag is on
   - product-catalog memory usage is well below its cap (otherwise suspect a GC spiral)

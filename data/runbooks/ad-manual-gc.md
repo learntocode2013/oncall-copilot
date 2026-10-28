@@ -1,11 +1,20 @@
 ---
 kind: cause
 fault_id: ad-manual-gc
+status: structural
 service: ad
 symptom: ad service stalls periodically with memory sawtooth and CPU bursts
-fix: set_flag(flag=adManualGc, variant="off")
-rollback: set_flag(flag=adManualGc, variant="on")
 severity: sev3
+fix:
+  action: set_flag
+  args:
+    flag: "adManualGc"
+    variant: "off"
+rollback:
+  action: set_flag
+  args:
+    flag: "adManualGc"
+    variant: "on"
 preconditions:
   - the flagd adManualGc flag is on
   - ad memory shows a sawtooth over time rather than a steady level

@@ -1,11 +1,20 @@
 ---
 kind: cause
 fault_id: email-memory-leak
+status: structural
 service: email
 symptom: email service memory grows steadily until it fails
-fix: set_flag(flag=emailMemoryLeak, variant="off")
-rollback: set_flag(flag=emailMemoryLeak, variant="1000x")
 severity: sev2
+fix:
+  action: set_flag
+  args:
+    flag: "emailMemoryLeak"
+    variant: "off"
+rollback:
+  action: set_flag
+  args:
+    flag: "emailMemoryLeak"
+    variant: "1000x"
 preconditions:
   - the flagd emailMemoryLeak flag is set to a non-off variant
   - email memory is RISING over time rather than sitting at a steady level

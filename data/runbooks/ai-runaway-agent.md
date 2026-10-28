@@ -1,11 +1,20 @@
 ---
 kind: cause
 fault_id: ai-runaway-agent
+status: hypothesis
 service: agent
 symptom: the demo AI agent loops tool calls until it hits its recursion limit
-fix: set_flag(flag=aiRunawayAgent, variant="off")
-rollback: set_flag(flag=aiRunawayAgent, variant="on")
 severity: sev2
+fix:
+  action: set_flag
+  args:
+    flag: "aiRunawayAgent"
+    variant: "off"
+rollback:
+  action: set_flag
+  args:
+    flag: "aiRunawayAgent"
+    variant: "on"
 preconditions:
   - the stack includes compose.agent.yaml — the agent service is NOT deployed by default
   - the flagd aiRunawayAgent flag is on

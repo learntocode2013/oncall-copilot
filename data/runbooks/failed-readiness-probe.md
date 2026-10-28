@@ -1,11 +1,20 @@
 ---
 kind: cause
 fault_id: failed-readiness-probe
+status: structural
 service: cart
 symptom: cart reported unhealthy while continuing to serve requests
-fix: set_flag(flag=failedReadinessProbe, variant="off")
-rollback: set_flag(flag=failedReadinessProbe, variant="on")
 severity: sev3
+fix:
+  action: set_flag
+  args:
+    flag: "failedReadinessProbe"
+    variant: "off"
+rollback:
+  action: set_flag
+  args:
+    flag: "failedReadinessProbe"
+    variant: "on"
 preconditions:
   - the flagd failedReadinessProbe flag is enabled
   - the service answers a direct connection on its port despite being reported unhealthy

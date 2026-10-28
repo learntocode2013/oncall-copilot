@@ -1,11 +1,20 @@
 ---
 kind: cause
 fault_id: recommendation-cache-failure
+status: structural
 service: recommendation
 symptom: recommendation service degrades as its cache fails
-fix: set_flag(flag=recommendationCacheFailure, variant="off")
-rollback: set_flag(flag=recommendationCacheFailure, variant="on")
 severity: sev3
+fix:
+  action: set_flag
+  args:
+    flag: "recommendationCacheFailure"
+    variant: "off"
+rollback:
+  action: set_flag
+  args:
+    flag: "recommendationCacheFailure"
+    variant: "on"
 preconditions:
   - the flagd recommendationCacheFailure flag is on
   - the recommendation health-check override from ADR-0001 is in place

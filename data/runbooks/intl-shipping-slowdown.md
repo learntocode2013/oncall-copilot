@@ -1,11 +1,20 @@
 ---
 kind: cause
 fault_id: intl-shipping-slowdown
+status: structural
 service: shipping
 symptom: international shipping quotes are slow, checkout stalls
-fix: set_flag(flag=intlShippingSlowdown, variant="off")
-rollback: set_flag(flag=intlShippingSlowdown, variant="10sec")
 severity: sev2
+fix:
+  action: set_flag
+  args:
+    flag: "intlShippingSlowdown"
+    variant: "off"
+rollback:
+  action: set_flag
+  args:
+    flag: "intlShippingSlowdown"
+    variant: "10sec"
 preconditions:
   - the flagd intlShippingSlowdown flag is set to 5sec or 10sec
   - shipping span duration matches the configured delay

@@ -1,11 +1,20 @@
 ---
 kind: cause
 fault_id: product-catalog-lock-contention
+status: structural
 service: product-catalog
 symptom: product catalog latency rises sharply without hard errors
-fix: set_flag(flag=productCatalogLockContention, variant="off")
-rollback: set_flag(flag=productCatalogLockContention, variant="on")
 severity: sev2
+fix:
+  action: set_flag
+  args:
+    flag: "productCatalogLockContention"
+    variant: "off"
+rollback:
+  action: set_flag
+  args:
+    flag: "productCatalogLockContention"
+    variant: "on"
 preconditions:
   - the flagd productCatalogLockContention flag is on
   - catalog requests are slow but mostly succeeding

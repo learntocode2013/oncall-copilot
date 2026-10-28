@@ -1,11 +1,20 @@
 ---
 kind: cause
 fault_id: image-slow-load
+status: structural
 service: image-provider
 symptom: product images load slowly, pages render late
-fix: set_flag(flag=imageSlowLoad, variant="off")
-rollback: set_flag(flag=imageSlowLoad, variant="10sec")
 severity: sev3
+fix:
+  action: set_flag
+  args:
+    flag: "imageSlowLoad"
+    variant: "off"
+rollback:
+  action: set_flag
+  args:
+    flag: "imageSlowLoad"
+    variant: "10sec"
 preconditions:
   - the flagd imageSlowLoad flag is set to 5sec or 10sec
   - image-provider latency matches the configured delay

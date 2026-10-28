@@ -1,11 +1,20 @@
 ---
 kind: cause
 fault_id: cart-failure
+status: structural
 service: cart
 symptom: adding items to the cart fails for a proportion of sessions
-fix: set_flag(flag=cartFailure, variant="off")
-rollback: set_flag(flag=cartFailure, variant="100%")
 severity: sev1
+fix:
+  action: set_flag
+  args:
+    flag: "cartFailure"
+    variant: "off"
+rollback:
+  action: set_flag
+  args:
+    flag: "cartFailure"
+    variant: "100%"
 preconditions:
   - the flagd cartFailure flag is set to a non-off variant
   - cart itself is running and reported healthy

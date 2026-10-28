@@ -1,11 +1,20 @@
 ---
 kind: cause
 fault_id: ad-failure
+status: structural
 service: ad
 symptom: ad service returns hard errors
-fix: set_flag(flag=adFailure, variant="off")
-rollback: set_flag(flag=adFailure, variant="on")
 severity: sev3
+fix:
+  action: set_flag
+  args:
+    flag: "adFailure"
+    variant: "off"
+rollback:
+  action: set_flag
+  args:
+    flag: "adFailure"
+    variant: "on"
 preconditions:
   - the flagd adFailure flag is on
   - ad returns errors rather than being merely slow

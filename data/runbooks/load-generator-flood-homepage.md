@@ -1,11 +1,18 @@
 ---
 kind: cause
 fault_id: load-generator-flood-homepage
+status: structural
 service: load-generator
 symptom: request volume spikes sharply; error counts rise but error share does not
-fix: NO ACTION — this is not a service fault
-rollback: set_flag(flag=loadGeneratorFloodHomepage, variant="on")
 severity: none
+fix:
+  action: none
+  reason: not a service fault; any remediation is a harmful action
+rollback:
+  action: set_flag
+  args:
+    flag: "loadGeneratorFloodHomepage"
+    variant: "on"
 preconditions:
   - the flagd loadGeneratorFloodHomepage flag is on
   - request VOLUME has risen sharply

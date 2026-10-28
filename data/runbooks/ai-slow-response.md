@@ -1,11 +1,20 @@
 ---
 kind: cause
 fault_id: ai-slow-response
+status: hypothesis
 service: agent
 symptom: the demo AI agent responds slowly
-fix: set_flag(flag=aiSlowResponse, variant="off")
-rollback: set_flag(flag=aiSlowResponse, variant="10sec")
 severity: sev3
+fix:
+  action: set_flag
+  args:
+    flag: "aiSlowResponse"
+    variant: "off"
+rollback:
+  action: set_flag
+  args:
+    flag: "aiSlowResponse"
+    variant: "10sec"
 preconditions:
   - the stack includes compose.agent.yaml — the agent service is NOT deployed by default
   - the flagd aiSlowResponse flag is set to 5sec or 10sec

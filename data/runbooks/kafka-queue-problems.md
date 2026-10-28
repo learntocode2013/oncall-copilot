@@ -1,11 +1,20 @@
 ---
 kind: cause
 fault_id: kafka-queue-problems
+status: structural
 service: kafka
 symptom: order events back up; accounting and fraud detection fall behind
-fix: set_flag(flag=kafkaQueueProblems, variant="off")
-rollback: set_flag(flag=kafkaQueueProblems, variant="on")
 severity: sev2
+fix:
+  action: set_flag
+  args:
+    flag: "kafkaQueueProblems"
+    variant: "off"
+rollback:
+  action: set_flag
+  args:
+    flag: "kafkaQueueProblems"
+    variant: "on"
 preconditions:
   - the stack is running in MODE=full — kafka does not exist in minimal mode
   - the flagd kafkaQueueProblems flag is on

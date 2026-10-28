@@ -1,11 +1,20 @@
 ---
 kind: cause
 fault_id: ad-high-cpu
+status: structural
 service: ad
 symptom: ad service slow or unresponsive, CPU saturated
-fix: set_flag(flag=adHighCpu, variant="off")
-rollback: set_flag(flag=adHighCpu, variant="on")
 severity: sev3
+fix:
+  action: set_flag
+  args:
+    flag: "adHighCpu"
+    variant: "off"
+rollback:
+  action: set_flag
+  args:
+    flag: "adHighCpu"
+    variant: "on"
 preconditions:
   - the flagd adHighCpu flag is on
   - ad container CPU is saturated while memory stays well below its 300 MiB cap

@@ -1,11 +1,20 @@
 ---
 kind: cause
 fault_id: payment-failure
+status: verified
 service: payment
 symptom: checkout returns HTTP 422 and payment transactions stop
-fix: set_flag(flag=paymentFailure, variant="off")
-rollback: set_flag(flag=paymentFailure, variant="100%")
 severity: sev1
+fix:
+  action: set_flag
+  args:
+    flag: "paymentFailure"
+    variant: "off"
+rollback:
+  action: set_flag
+  args:
+    flag: "paymentFailure"
+    variant: "100%"
 preconditions:
   - the flagd paymentFailure flag is enabled
   - payment spans are present in traces and carrying errors (if absent, suspect paymentUnreachable)
