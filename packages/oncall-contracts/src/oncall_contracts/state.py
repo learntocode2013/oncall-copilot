@@ -6,9 +6,9 @@ writer win and silently discard the other agents' findings.
 """
 
 from operator import add
-from typing import Annotated, Any, Literal, NotRequired, TypedDict
+from typing import Annotated, Any, NotRequired, TypedDict
 
-Severity = Literal["sev1", "sev2", "sev3", "none"]
+from .config import Severity
 
 
 class Hypothesis(TypedDict):

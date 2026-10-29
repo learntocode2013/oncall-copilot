@@ -1,0 +1,92 @@
+name: ci
+
+on:
+  # Every branch, not just main. A feature-branch push with no CI feedback means
+  # a broken guard surfaces at PR time, three commits after it was introduced.
+  # The cost is that a branch with an open PR runs twice per push; the
+  # concurrency group cancels superseded runs but does not dedupe the two events.
+  push:
+  pull_request:
+    branches: [main]
+
+# A new push to the same branch supersedes the previous run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned deliberately: uv 0.11.17 is what the workspace was built and
+  # verified against. Bumping it is a reviewable change, not a surprise.
+  UV_VERSION: "0.11.17"
+
+# NOTE ON SUBMODULES: none of these jobs check out vendor/opentelemetry-demo.
+# Nothing they run needs it — the validator reads deploy/flagd (ours) and
+# data/runbooks, ruff excludes vendor/, and the tests import only our packages.
+# Skipping it avoids a ~7500-file clone on every run. If a guard ever reads the
+# demo's compose.yaml (to check dependency conditions, say), add
+# `submodules: recursive` to that job and nowhere else.
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: make lint
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: make test
+
+  # Structural guards: the corpus validator, the committed-flag baseline, the
+  # dependency direction, and the two contamination checks. Separate from
+  # `test` so a failure here is legible on the PR as "a guard broke", not as a
+  # test failure among others — these encode graded requirements.
+  #
+  # This job must never be allowed to continue-on-error.
+  guards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: make guards
+
+  # A stale lock means CI and developers resolve different dependency sets,
+  # which is the "works on my machine" failure with extra steps.
+  lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv lock --check
+
+# DEFERRED JOBS — add each one in the same commit that makes it real, never
+# before. A job that is red from the day it lands teaches everyone to ignore
+# the pipeline.
+#
+#   eval-gate   needs packages/oncall-eval. Runs the harness in --mock mode on
+#               eval/dev ONLY, never eval/heldout: CI runs on every push, so
+#               pointing it at held-out would contaminate the set within days.
+#               --mock because CI holds no OPENROUTER_API_KEY; it still checks
+#               case schemas, the manifest cross-check, the RunRecord contract
+#               and the grouping for real.
+#
+#   docs        needs the pandoc target in the Makefile (plan Task 9).
