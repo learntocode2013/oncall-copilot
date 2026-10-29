@@ -1,9 +1,13 @@
 name: ci
 
 on:
+  # Every branch, not just main. A feature-branch push with no CI feedback means
+  # a broken guard surfaces at PR time, three commits after it was introduced.
+  # The cost is that a branch with an open PR runs twice per push; the
+  # concurrency group cancels superseded runs but does not dedupe the two events.
   push:
-    branches: [main]
   pull_request:
+    branches: [main]
 
 # A new push to the same branch supersedes the previous run.
 concurrency:
