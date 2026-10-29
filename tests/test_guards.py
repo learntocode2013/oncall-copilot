@@ -239,3 +239,40 @@ def test_actions_match_the_tool_schemas() -> None:
     assert declared, "oncall_contracts.tools must declare ACTION_SCHEMAS"
     unknown = {a for a in ACTION_NAMES if a != "none"} - declared
     assert not unknown, f"actions with no tool schema: {sorted(unknown)}"
+
+
+def test_ci_runs_the_guards_and_cannot_be_softened() -> None:
+    """CI must run the guards, and no job may be allowed to fail quietly.
+
+    The guards exist because every failure this project has hit looked like
+    success. A `continue-on-error` on the guards job would restore exactly the
+    situation they were written to prevent — and it is a tempting one-line fix
+    when a guard blocks a push.
+    """
+    import yaml
+
+    workflow = ROOT / ".github" / "workflows" / "ci.yaml"
+    assert workflow.is_file(), "no CI workflow: the guards are enforced only when someone remembers"
+
+    config = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+    jobs = config["jobs"]
+
+    for required in ("lint", "test", "guards"):
+        assert required in jobs, f"CI is missing the {required!r} job"
+
+    for name, job in jobs.items():
+        assert "continue-on-error" not in job, (
+            f"job {name!r} sets continue-on-error; a guard that cannot fail the "
+            "build is a convention, and conventions are what the guards replace"
+        )
+        for step in job.get("steps", []):
+            assert "continue-on-error" not in step, f"a step in job {name!r} sets continue-on-error"
+
+    # eval-gate does not exist yet. When it does, it must never point at the
+    # held-out set: CI runs on every push, so that would contaminate it within
+    # days and the headline number would measure nothing.
+    gate = jobs.get("eval-gate")
+    if gate is not None:
+        rendered = yaml.safe_dump(gate)
+        assert "heldout" not in rendered, "the CI eval gate must never run on held-out cases"
+        assert "eval/dev" in rendered, "the CI eval gate must name eval/dev explicitly"
