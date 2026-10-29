@@ -1,0 +1,17 @@
+[project]
+name = "oncall-knowledge"
+version = "0.1.0"
+description = "P1 — runbook corpus schema, validation, ingestion, retrieval and memory."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "oncall-contracts",
+    "pyyaml>=6.0.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+oncall-contracts = { workspace = true }

@@ -16,3 +16,8 @@ Topology = Literal["c0_workflow", "c1_single", "c2_team"]
 # stratification for any claim that the team helps on complex incidents but
 # costs more on simple ones.
 Complexity = Literal["single", "multi"]
+
+# Incident severity, assigned per docs/severity-policy.md. Lives here rather
+# than in state.py because the corpus validator, the severity policy and the
+# dashboards all need the vocabulary without importing the graph's state.
+Severity = Literal["sev1", "sev2", "sev3", "none"]
