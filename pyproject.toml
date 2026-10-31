@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "oncall-contracts",
     "oncall-knowledge",
+    "oncall-graph",
 ]
 
 [tool.uv.workspace]
@@ -15,6 +16,7 @@ members = ["packages/*"]
 [tool.uv.sources]
 oncall-contracts = { workspace = true }
 oncall-knowledge = { workspace = true }
+oncall-graph = { workspace = true }
 
 [dependency-groups]
 dev = [
