@@ -15,16 +15,17 @@ import json
 from langgraph.types import interrupt
 
 from ..planning.monitor import code_rollback
-from ..planning.plan import default_rollback, validate_plan
+from ..planning.plan import default_rollback, validate_action
+from ..state import transcript_lines
 
 # The checkout alert fires above 5%. Recovery is a rate under that line.
 RECOVERY_LINE = 0.05
 
 
 def command_payload(action) -> dict:
-    """The exact command the engineer approves: tool, args, and expected effect."""
+    """The exact command the engineer approves: action, args, and expected effect."""
     return {
-        "tool": action["tool"],
+        "action": action["action"],
         "args": dict(action.get("args") or {}),
         "expected_effect": action.get("expected_effect") or "",
     }
@@ -40,22 +41,17 @@ def apply_command(action, command):
     if not isinstance(command, dict):
         # ValueError, not TypeError: the approval node catches it and interrupts again.
         raise ValueError("command must be an object")  # noqa: TRY004
-    if "tool" not in command and isinstance(command.get("command"), dict):
+    if "action" not in command and isinstance(command.get("command"), dict):
         command = command["command"]
-    tool = command.get("tool") or action["tool"]
+    name = command.get("action") or action["action"]
     args = command.get("args") if "args" in command else action.get("args")
     effect = command.get("expected_effect") or action.get("expected_effect")
-    proposed = {"tool": tool, "args": args, "expected_effect": effect}
+    proposed = {"action": name, "args": args, "expected_effect": effect}
     if command.get("rollback") is None:
-        proposed["rollback"] = default_rollback(tool, args if isinstance(args, dict) else {})
+        proposed["rollback"] = default_rollback(name, args if isinstance(args, dict) else {})
     else:
         proposed["rollback"] = command["rollback"]
-    return validate_plan(
-        {
-            "stage": "act",
-            "proposed_action": proposed,
-        }
-    )["proposed_action"]
+    return validate_action(proposed)
 
 
 def _decision(resume):
@@ -81,14 +77,14 @@ def approval(state):
     in order, so an edit made on the previous pause is applied before the new
     decision is read.
     """
-    current = (state.get("plan") or {}).get("proposed_action")
+    current = state.get("proposed_action")
     if not current:
         return {
             "status": "REJECTED",
             "route": "reject",
             "why": "no action to approve",
             "approval_payload_hash": "",
-            "trace": ["approval rejected"],
+            "transcript": transcript_lines("approval", "approval rejected"),
         }
     action = copy.deepcopy(current)
     error = None
@@ -96,7 +92,7 @@ def approval(state):
         payload = command_payload(action)
         digest = payload_hash(payload)
         shown = {
-            "command": {"tool": payload["tool"], "args": payload["args"]},
+            "command": {"action": payload["action"], "args": payload["args"]},
             "expected_effect": payload["expected_effect"],
             "payload_hash": digest,
         }
@@ -127,36 +123,36 @@ def approval(state):
                 "route": "reject",
                 "why": "engineer rejected the action",
                 "approval_payload_hash": "",
-                "trace": ["approval rejected"],
+                "transcript": transcript_lines("approval", "approval rejected"),
             }
         if choice in ("approve", "approved"):
             claimed = decision.get("payload_hash")
             if claimed not in (None, "", digest):
                 continue
             plan = dict(state.get("plan") or {})
-            plan["proposed_action"] = action
             plan["stage"] = "act"
             return {
                 "plan": plan,
                 "stage": "act",
+                "proposed_action": action,
                 "approval_payload_hash": digest,
                 "route": "execute",
                 "status": "APPROVED",
                 "why": "",
-                "trace": ["approval matched"],
+                "transcript": transcript_lines("approval", "approval matched"),
             }
         continue
 
 
 def execute_action_code(state, shop):
     """Run the approved command. A different hash does not touch the shop."""
-    action = (state.get("plan") or {}).get("proposed_action") or {}
+    action = state.get("proposed_action") or {}
     if not action:
         return {
             "status": "APPROVAL_MISMATCH",
             "route": "stop",
             "why": "no action to execute",
-            "trace": ["execute refused"],
+            "transcript": transcript_lines("execute", "execute refused"),
         }
     digest = payload_hash(command_payload(action))
     if digest != (state.get("approval_payload_hash") or ""):
@@ -164,21 +160,21 @@ def execute_action_code(state, shop):
             "status": "APPROVAL_MISMATCH",
             "route": "stop",
             "why": "approval hash does not match the command",
-            "trace": ["execute refused"],
+            "transcript": transcript_lines("execute", "execute refused"),
         }
-    result = shop.apply(action["tool"], action["args"])
+    result = shop.apply(action["action"], action["args"])
     plan = dict(state.get("plan") or {})
     plan["stage"] = "verify"
     return {
         "plan": plan,
         "stage": "verify",
         "last": {
-            "step": {"tool": action["tool"], "args": dict(action["args"])},
+            "step": {"tool": action["action"], "args": dict(action["args"])},
             "result": result,
         },
         "ok": True,
         "route": "verify",
-        "trace": [f"executed {action['tool']}"],
+        "transcript": transcript_lines("execute", f"executed {action['action']}"),
     }
 
 
@@ -192,11 +188,15 @@ def verify_metrics(state, shop):
     return {
         "plan": plan,
         "stage": plan["stage"],
-        "verification": {"recovered": recovered, "error_rate": rate},
+        "verification": {
+            "recovered": recovered,
+            "signal": "checkout_error_rate",
+            "evidence_refs": ["checkout_error_rate"],
+        },
         "route": "recovered" if recovered else "rollback",
         "status": "RECOVERED" if recovered else (state.get("status") or "RUNNING"),
         "why": "" if recovered else "verification failed",
-        "trace": [f"verify recovered={recovered}"],
+        "transcript": transcript_lines("verify", f"verify recovered={recovered}"),
     }
 
 
@@ -211,7 +211,7 @@ def rollback_code(state, shop):
         "pending_rollback": pending,
         "last": {"step": pending, "result": result},
         "route": "replan",
-        "trace": ["rollback"],
+        "transcript": transcript_lines("rollback", "rollback"),
     }
 
 

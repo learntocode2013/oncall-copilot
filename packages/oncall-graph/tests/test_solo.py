@@ -20,14 +20,15 @@ ALERT = (
 )
 
 PAYMENT_ACTION = {
-    "tool": "set_flag",
+    "action": "set_flag",
     "args": {"flag": "paymentFailure", "enabled": False},
     "expected_effect": "checkout error rate falls below 5%",
-    "rollback": {
-        "tool": "set_flag",
-        "args": {"flag": "paymentFailure", "enabled": True},
-    },
+    "rollback": "set_flag paymentFailure enabled=true",
 }
+
+
+def texts(state):
+    return [item["text"] for item in state.get("transcript") or []]
 
 
 class Scripted:
@@ -151,17 +152,16 @@ def test_proposing_an_action_does_not_change_the_shop():
         action = box["proposals"][0]
     assert result["executed"] is False
     assert result["args"] == {"flag": "paymentFailure", "enabled": False}
-    assert action["rollback"] == {
-        "tool": "set_flag",
-        "args": {"flag": "paymentFailure", "enabled": True},
-    }
+    assert action["action"] == "set_flag"
+    assert action["rollback"] == "set_flag paymentFailure enabled=true"
     assert shop.writes == []
     assert shop.flags["paymentFailure"] is True
 
 
 def test_execute_refuses_a_hash_mismatch_and_runs_a_match():
     refused = new_incident(
-        plan={"stage": "act", "proposed_action": PAYMENT_ACTION},
+        plan={"stage": "act"},
+        proposed_action=PAYMENT_ACTION,
         approval_payload_hash="not-the-hash",
     )
     shop = Shop()
@@ -170,11 +170,11 @@ def test_execute_refuses_a_hash_mismatch_and_runs_a_match():
     assert shop.writes == []
     assert shop.flags["paymentFailure"] is True
 
-    accepted = new_incident(plan={"stage": "act", "proposed_action": PAYMENT_ACTION})
-    digest = payload_hash(command_payload(accepted["plan"]["proposed_action"]))
+    accepted = new_incident(plan={"stage": "act"}, proposed_action=PAYMENT_ACTION)
+    digest = payload_hash(command_payload(accepted["proposed_action"]))
     accepted["approval_payload_hash"] = digest
     ran = execute_action_code(accepted, shop)
-    assert ran["trace"] == ["executed set_flag"]
+    assert texts(ran) == ["executed set_flag"]
     assert shop.writes == [
         {
             "tool": "set_flag",
@@ -196,15 +196,16 @@ def test_approve_runs_the_exact_command_and_verifies_recovery():
     assert solo.shop.writes == []
     assert solo.shop.restarts == []
     assert solo.shop.flags["paymentFailure"] is True
-    action = paused["plan"]["proposed_action"]
-    assert action["tool"] == "set_flag"
+    action = paused["proposed_action"]
+    assert action["action"] == "set_flag"
     assert action["args"] == {"flag": "paymentFailure", "enabled": False}
     intr = interrupt_value(paused)
-    assert intr["command"] == {"tool": "set_flag", "args": action["args"]}
+    assert intr["command"] == {"action": "set_flag", "args": action["args"]}
     assert intr["expected_effect"] == action["expected_effect"]
     assert intr["payload_hash"] == payload_hash(command_payload(action))
-    assert "paymentFailure" in paused["plan"]["hypotheses"][0]["evidence"][0]
-    assert "[act]" in format_plan(paused["plan"])
+    assert paused["hypotheses"][0]["statement"] == "paymentFailure flag"
+    assert "checkout_error_rate" in paused["hypotheses"][0]["evidence_refs"]
+    assert "[act]" in format_plan(paused["plan"], paused["hypotheses"], action)
 
     slot = measured.by_agent["solo"]
     assert slot["model_id"] == SPECIALIST_MODEL
@@ -218,7 +219,7 @@ def test_approve_runs_the_exact_command_and_verifies_recovery():
     assert done["status"] == "RECOVERED"
     assert done["stage"] == "communicate"
     assert done["verification"]["recovered"] is True
-    assert done["verification"]["error_rate"] < 0.05
+    assert done["verification"]["signal"] == "checkout_error_rate"
     assert solo.shop.writes == [
         {
             "tool": "set_flag",
@@ -227,10 +228,10 @@ def test_approve_runs_the_exact_command_and_verifies_recovery():
     ]
     assert solo.shop.restarts == []
     assert solo.shop.flags["paymentFailure"] is False
-    assert "approval matched" in done["trace"]
-    assert "executed set_flag" in done["trace"]
-    assert "verify recovered=True" in done["trace"]
-    assert "rollback" not in done["trace"]
+    assert "approval matched" in texts(done)
+    assert "executed set_flag" in texts(done)
+    assert "verify recovered=True" in texts(done)
+    assert "rollback" not in texts(done)
 
 
 def test_reject_writes_nothing():
@@ -241,7 +242,7 @@ def test_reject_writes_nothing():
     assert interrupt_value(done) is None
     assert solo.shop.writes == []
     assert solo.shop.flags["paymentFailure"] is True
-    assert "approval rejected" in done["trace"]
+    assert "approval rejected" in texts(done)
 
 
 def test_an_edit_interrupts_again_and_the_old_hash_does_not_run():
@@ -253,7 +254,7 @@ def test_an_edit_interrupts_again_and_the_old_hash_does_not_run():
         resume={
             "decision": "edit",
             "command": {
-                "tool": "restart",
+                "action": "restart",
                 "args": {"service": "payment"},
                 "expected_effect": "payment process restarts",
             },
@@ -262,19 +263,19 @@ def test_an_edit_interrupts_again_and_the_old_hash_does_not_run():
     intr = interrupt_value(edited)
     assert intr is not None
     assert intr["payload_hash"] != old
-    assert intr["command"] == {"tool": "restart", "args": {"service": "payment"}}
+    assert intr["command"] == {"action": "restart", "args": {"service": "payment"}}
     assert solo.shop.writes == []
 
     stale, _ = solo.run(resume={"decision": "approve", "payload_hash": old})
     assert solo.shop.writes == []
-    assert interrupt_value(stale)["command"]["tool"] == "restart"
+    assert interrupt_value(stale)["command"]["action"] == "restart"
     assert interrupt_value(stale)["payload_hash"] != old
 
     done, _ = solo.run(resume={"decision": "approve"})
     assert solo.shop.writes[0] == {"tool": "restart", "args": {"service": "payment"}}
     assert all(item["tool"] != "set_flag" for item in solo.shop.writes)
     assert solo.shop.flags["paymentFailure"] is True
-    assert "rollback" in done["trace"]
+    assert "rollback" in texts(done)
 
 
 def test_failed_verification_rolls_back_then_replans():
@@ -310,11 +311,11 @@ def test_failed_verification_rolls_back_then_replans():
     }
     assert done["revisions"] == 1
     assert done["status"] == "ESCALATED"
-    assert done["plan"]["proposed_action"] is None
+    assert done["proposed_action"] is None
     assert done["plan"]["stage"] == "hypotheses"
-    rollback_at = done["trace"].index("rollback")
-    assert rollback_at < done["trace"].index("replan")
-    assert "verify recovered=False" in done["trace"]
+    rollback_at = texts(done).index("rollback")
+    assert rollback_at < texts(done).index("replan")
+    assert "verify recovered=False" in texts(done)
 
 
 @pytest.mark.parametrize("budget", TOOL_BUDGETS)
