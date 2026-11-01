@@ -70,8 +70,7 @@ def build_graph(
     tool_budget: Literal[5, 10, 20] = 10,
     max_revisions: int = 3,
     checkpointer: BaseCheckpointSaver | None = None,
-) -> CompiledStateGraph:
-    ...
+) -> CompiledStateGraph: ...
 ```
 
 | Argument | Meaning |
