@@ -1,0 +1,19 @@
+[project]
+name = "oncall-service"
+version = "0.1.0"
+description = "Incident API, SSE stream, and operations console for On-Call Copilot."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "oncall-contracts",
+    "oncall-graph",
+    "uvicorn[standard]>=0.34",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+oncall-contracts = { workspace = true }
+oncall-graph = { workspace = true }
