@@ -103,7 +103,9 @@ build:
 ```
 
 `--project-directory` does not fix this: it moves resolution for both files and breaks the demo's
-own paths. After any overlay change, run `make config` and read the rendered output.
+own paths. After any overlay change, run `make config` and read the rendered output. Paths are
+interpolated, so `oncall-service`'s build context is this repo. Values whose names contain
+`API_KEY`, `_KEY`, `TOKEN`, `SECRET`, or `PASSWORD` are replaced with `<redacted>`.
 
 ## Before you push
 

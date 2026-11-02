@@ -89,9 +89,9 @@ That is the whole setup. `make bootstrap` runs six things in order:
 1. `git submodule update --init --recursive` — fetches the pinned demo at `3.1.0`
 2. creates `.env` from `.env.example` if it is missing
 3. warns (does not stop) if `OPENROUTER_API_KEY` is empty — the guided demo works without it, but live investigations do not
-4. `uv sync` — installs the Python workspace
-5. `docker compose up --wait` — starts the stack and waits for every container to be healthy
-6. `verify` + `urls` — curls the health endpoints and prints where everything is
+4. `uv sync` — installs the Python workspace on the host
+5. `make up` — builds the incident image, starts the stack, and waits until every container with a health check is healthy
+6. `verify` + `urls` — curls Prometheus, the shop, and the incident API, then prints where everything is
 
 **Forgot `--recurse-submodules`?** Step 1 repairs it. That failure mode is gone.
 
@@ -102,13 +102,15 @@ health-wait, just run it again: everything is cached and the second pass is quic
 ### Every day after
 
 ```bash
-make up          # start shop + telemetry + agent API + UI
+make up          # build the incident image, start the stack, verify, print URLs
 # ... work ...
-make stop        # pause everything and keep telemetry data
+make stop        # pause the containers and keep telemetry data
 ```
 
-Use `make down` to remove the containers while keeping volumes. `make ui` is
-only for debugging the incident service on the host.
+The next `make up` starts those same containers. It recreates the incident
+service only when that image changed. Use `make down` to remove the containers
+while keeping volumes. `make ui` is only for debugging the incident service on
+the host.
 
 ### After you pull — run `bootstrap`, not `up`
 
@@ -117,10 +119,11 @@ git pull
 make bootstrap
 ```
 
-`make up` does **not** run `uv sync` and does **not** update the submodule. So after pulling a
-teammate's changes, `make up` alone will miss:
+`make up` rebuilds the incident image from the working tree. It does **not** run `uv sync` on
+the host and does **not** update the submodule. So after pulling a teammate's changes, `make up`
+alone will miss:
 
-- a new workspace package → `ModuleNotFoundError` when you import it
+- a new workspace package → `ModuleNotFoundError` when you import it from the host
 - a moved submodule pin → you are silently on the old demo version, and your evaluation
   numbers are no longer comparable to everyone else's
 
@@ -192,18 +195,18 @@ successes), and the frontend's HTTP series carry **no `http_route` label**, so a
 | Command | What it does |
 |---|---|
 | `make help` | List every target |
-| `make bootstrap` | **After a clone, and after every pull.** Submodule, `.env`, `uv sync`, start, health-wait, URLs. Idempotent |
-| `make up` | Daily start: shop, telemetry, agent API, and incident UI; wait for health |
+| `make bootstrap` | **After a clone, and after every pull.** Submodule, `.env`, host `uv sync`, then `up`. Idempotent |
+| `make up` | Build the incident image, start the stack, wait for health, verify, print URLs |
 | `make preflight` | Name anything a fresh clone is missing, and print the current `MODE` |
-| `make verify` | Curl the health endpoints — our clean-machine install evidence |
+| `make verify` | Curl Prometheus, the shop frontend, and the incident API |
 | `make urls` | Print the URL table |
-| `make stop` | Halt containers, keep data — `make up` resumes in seconds |
+| `make stop` | Halt containers, keep data. The next `make up` starts those containers again |
 | `make down` | Remove containers, keep volumes |
 | `make reset` | **Also wipes Prometheus/OpenSearch data.** Use between eval runs; never before a demo |
-| `make config` | Render the merged Compose config — how you check an overlay change took effect |
+| `make config` | Render the merged Compose config with paths resolved and secret values redacted |
 | `make reload-rules` | Apply edited Prometheus alert rules without a restart |
 | `make test` | Whole test suite |
-| `make guards` | Just the structural guards — **fails until Task 3 creates them** |
+| `make guards` | Just the structural guards |
 | `make lint` | ruff check + format check |
 | `make docs` | Build the submission PDFs — **not built yet** (Task 9) |
 

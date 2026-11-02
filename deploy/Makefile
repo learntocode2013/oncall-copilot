@@ -48,18 +48,20 @@ COMPOSE := cd $(ONCALL_ROOT) && docker compose \
 .PHONY: help bootstrap preflight up stop down reset config verify urls reload-rules
 
 help:
-	@echo "bootstrap  one command after a clone: submodule, .env, uv sync, up, verify"
-	@echo "up         start the complete application"
-	@echo "stop       halt containers, keep data ('up' resumes in seconds)"
+	@echo "bootstrap  one command after a clone: submodule, .env, uv sync, then up"
+	@echo "up         build our image, start the stack, verify, print URLs"
+	@echo "stop       halt containers, keep data (the next up starts them again)"
 	@echo "down       remove containers, keep volumes"
 	@echo "reset      also WIPE Prometheus/OpenSearch data"
-	@echo "config     render the merged compose config"
+	@echo "config     render the merged compose config (secrets redacted)"
 	@echo "verify     curl the health endpoints"
 	@echo "urls       print where everything is"
 	@echo ""
 	@echo "MODE=$(MODE)  (full|minimal; set in deploy/local.mk)"
 
 # The one post-clone command. Idempotent: re-run it whenever.
+# Host uv sync stays here: `up` rebuilds the incident image, but test/lint/ui
+# run from the host virtualenv, and the submodule pin is not `up`'s job.
 bootstrap:
 	@cd $(ONCALL_ROOT) && git submodule update --init --recursive
 	@cd $(ONCALL_ROOT) && test -f .env || { cp .env.example .env; \
@@ -71,25 +73,33 @@ bootstrap:
 	  echo "      until you add a key. https://openrouter.ai/keys"; \
 	  echo ""; }
 	@cd $(ONCALL_ROOT) && uv sync
-	$(COMPOSE) up --force-recreate --remove-orphans --detach --wait --wait-timeout 600
-	@$(MAKE) verify
-	@$(MAKE) urls
+	@$(MAKE) up
 
 # Names the three things a fresh clone lacks, with the exact remedy.
+# Messages go to stderr so `make config > file.yaml` stays valid YAML.
 preflight:
 	@test -f $(ONCALL_ROOT)/$(DEMO)/compose.yaml || { \
-	  echo "ERROR: $(DEMO)/compose.yaml not found."; \
-	  echo "  The demo is a submodule. Run:"; \
-	  echo "    git submodule update --init --recursive"; exit 1; }
+	  echo "ERROR: $(DEMO)/compose.yaml not found." >&2; \
+	  echo "  The demo is a submodule. Run:" >&2; \
+	  echo "    git submodule update --init --recursive" >&2; exit 1; }
 	@test -f $(ONCALL_ROOT)/.env || { \
-	  echo "ERROR: .env not found."; \
-	  echo "  Run: cp .env.example .env"; exit 1; }
-	@test -n "$(ONCALL_ROOT)" || { echo "ERROR: ONCALL_ROOT is empty."; exit 1; }
-	@echo "preflight OK  MODE=$(MODE)  ONCALL_ROOT=$(ONCALL_ROOT)"
-	@test "$(MODE)" = "full" || echo "  NOTE: minimal mode — no kafka, so the kafkaQueueProblems fault family is unavailable. Evaluation runs need MODE=full."
+	  echo "ERROR: .env not found." >&2; \
+	  echo "  Run: cp .env.example .env" >&2; exit 1; }
+	@test -n "$(ONCALL_ROOT)" || { echo "ERROR: ONCALL_ROOT is empty." >&2; exit 1; }
+	@echo "preflight OK  MODE=$(MODE)  ONCALL_ROOT=$(ONCALL_ROOT)" >&2
+	@test "$(MODE)" = "full" || echo "  NOTE: minimal mode — no kafka, so the kafkaQueueProblems fault family is unavailable. Evaluation runs need MODE=full." >&2
 
+# No --force-recreate: `stop` leaves the containers in place, and the next
+# `up` starts them. Compose still recreates a service whose config or image
+# changed, so a rebuilt oncall-service replaces only that container.
+#
+# Build only our image. `compose up --build` would also rebuild every demo
+# service that has a Dockerfile.
 up: preflight
-	$(COMPOSE) up --force-recreate --remove-orphans --detach --wait --wait-timeout 600
+	$(COMPOSE) build oncall-service
+	$(COMPOSE) up --remove-orphans --detach --wait --wait-timeout 600
+	@$(MAKE) verify
+	@$(MAKE) urls
 
 stop: preflight
 	$(COMPOSE) stop
@@ -102,8 +112,12 @@ down: preflight
 reset: preflight
 	$(COMPOSE) down -v --remove-orphans
 
+# Interpolate so ${ONCALL_ROOT} becomes this repo, not a path under the demo.
+# Then redact secret values. --no-interpolate used to prefix the unresolved
+# variable with vendor/opentelemetry-demo, which made a correct overlay look
+# wrong.
 config: preflight
-	$(COMPOSE) config --no-interpolate
+	@$(COMPOSE) config | sed -E 's/^([[:space:]]*-?[[:space:]]*)([A-Za-z0-9_]*(API_KEY|_KEY|TOKEN|SECRET|PASSWORD)[A-Za-z0-9_]*)([[:space:]]*[:=][[:space:]]*)(.+)/\1\2\4<redacted>/'
 
 # Clean-machine install evidence. -f makes a bad HTTP status fail the target.
 verify:

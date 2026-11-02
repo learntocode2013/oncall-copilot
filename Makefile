@@ -11,7 +11,7 @@ help:
 	@echo "ui         run only the incident API/UI on the host for debugging"
 
 bootstrap up stop down reset config preflight verify urls reload-rules:
-	$(MAKE) -C deploy $@
+	@$(MAKE) -C deploy $@
 
 test:
 	uv run pytest -q

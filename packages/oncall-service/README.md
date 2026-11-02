@@ -9,10 +9,13 @@ To start the complete application from the repository root:
 make up
 ```
 
-This starts the Astronomy Shop and telemetry backends, waits for them to become
-healthy, and starts the incident API/UI on port 8000. `make stop`, `make down`,
-and `make reset` manage the entire stack. Use `make ui` only to run the service
-on the host for debugging when its external dependencies already run elsewhere.
+This builds the incident image, starts the Astronomy Shop and telemetry
+backends, waits for them to become healthy, checks the health endpoints, and
+prints the URLs. The incident API/UI is on port 8000. `make stop` pauses the
+containers, and the next `make up` starts them again. `make down` removes the
+containers and keeps volumes. `make reset` also wipes Prometheus and OpenSearch
+data. Use `make ui` only to run the service on the host for debugging when its
+external dependencies already run elsewhere.
 
 Open <http://127.0.0.1:8000>. **Run guided demo** uses no model and no live
 infrastructure. **Start live investigation** runs the current C1 solo agent:
