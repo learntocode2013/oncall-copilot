@@ -1,10 +1,5 @@
-# Demo lifecycle. LAYER 1: the Astronomy Shop only.
-#
-# deploy/compose.oncall.yaml is in the list, but in Layer 1 it carries only
-# an upstream health-check fix — none of our own services. When
-# incident-api and the MCP servers join it, add their checks to `verify`
-# IN THE SAME COMMIT. A target that asserts something which does not exist
-# teaches everyone to ignore it.
+# Complete application lifecycle: Astronomy Shop, telemetry, and our incident
+# API/UI. Future MCP services join the same overlay and verification contract.
 
 ONCALL_ROOT ?= $(shell cd .. && pwd)
 export ONCALL_ROOT
@@ -54,7 +49,7 @@ COMPOSE := cd $(ONCALL_ROOT) && docker compose \
 
 help:
 	@echo "bootstrap  one command after a clone: submodule, .env, uv sync, up, verify"
-	@echo "up         start the shop and its telemetry backends"
+	@echo "up         start the complete application"
 	@echo "stop       halt containers, keep data ('up' resumes in seconds)"
 	@echo "down       remove containers, keep volumes"
 	@echo "reset      also WIPE Prometheus/OpenSearch data"
@@ -108,13 +103,13 @@ reset: preflight
 	$(COMPOSE) down -v --remove-orphans
 
 config: preflight
-	$(COMPOSE) config
+	$(COMPOSE) config --no-interpolate
 
 # Clean-machine install evidence. -f makes a bad HTTP status fail the target.
-# Add the incident-api and MCP checks when those services join the overlay.
 verify:
 	@printf 'prometheus    '; curl -fsS localhost:9090/-/ready && echo
 	@printf 'shop frontend '; curl -fsS -o /dev/null -w '%{http_code}\n' localhost:8080/
+	@printf 'incident API  '; curl -fsS localhost:8000/healthz && echo
 
 urls:
 	@echo ""
@@ -123,6 +118,7 @@ urls:
 	@echo "  Jaeger          http://localhost:8080/jaeger/ui/"
 	@echo "  Feature flags   http://localhost:8080/feature"
 	@echo "  Prometheus      http://localhost:9090"
+	@echo "  Incident UI     http://localhost:8000/"
 
 reload-rules:
 	curl -X POST http://localhost:9090/-/reload

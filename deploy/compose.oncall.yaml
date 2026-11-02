@@ -1,14 +1,42 @@
-# Our overlay onto the Astronomy Shop.
-#
-# LAYER 1: it carries only an upstream bug fix. Our own services
-# (incident-api, the four MCP servers) join here once their modules exist —
-# and each one's health check joins `make verify` in the SAME commit.
+# Our services and compatibility fixes layered onto the Astronomy Shop.
+# Every service added here must add its health check to `make verify` in the
+# same commit so `make up --wait` remains trustworthy.
 #
 # Relative paths here must be ${ONCALL_ROOT}-rooted: Compose resolves
 # relative paths in EVERY -f file against the FIRST file's directory, which
 # is the demo repo, not ours. --project-directory cannot fix that without
 # breaking the demo's own paths.
 services:
+  oncall-service:
+    build:
+      context: ${ONCALL_ROOT:?set ONCALL_ROOT to the repo root}
+      dockerfile: packages/oncall-service/Dockerfile
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ONCALL_SERVICE_HOST: 0.0.0.0
+      ONCALL_SERVICE_PORT: "8000"
+      ONCALL_CORS_ORIGINS: ${ONCALL_CORS_ORIGINS:-}
+      PROMETHEUS_URL: http://prometheus:9090
+      JAEGER_URL: http://jaeger:16686/jaeger/ui
+      OPENSEARCH_URL: http://opensearch:9200
+    depends_on:
+      - prometheus
+      - jaeger
+      - opensearch
+    ports:
+      - "8000:8000"
+    init: true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=2)
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
   # UPSTREAM BUG, pinned tag 3.1.0: the health check runs
   #   nc -z localhost ${RECOMMENDATION_PORT}
   # but `nc` is not in the image, so it fails with

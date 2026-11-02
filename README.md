@@ -14,8 +14,7 @@ Agentic AI Capstone — Project 4 (IT operations, "production" family). Team of 
 
 | Works today | Not built yet |
 |---|---|
-| `make bootstrap` / `up` / `down` / `verify` — the full Astronomy Shop with Prometheus, Grafana, Jaeger and OpenSearch | Durable incident storage |
-| `make dev` — the complete local stack, including the incident API/UI (`localhost:8000`) | |
+| `make bootstrap` / `up` / `down` / `verify` — the Astronomy Shop, telemetry, incident API, and UI | Durable incident storage |
 | `oncall-contracts` — `IncidentState`, `Topology`, `Complexity`, `RunRecord` | The four MCP servers |
 | Solo incident agent with exact-action approval | Multi-agent commander and specialists |
 | Eval harness, structural guards, and red-team fixtures | Durable runbooks and incident memory |
@@ -103,13 +102,13 @@ health-wait, just run it again: everything is cached and the second pass is quic
 ### Every day after
 
 ```bash
-make dev         # reconcile setup, then start shop + telemetry + agent API + UI
-# Ctrl-C stops the API/UI; then:
-make stop        # pause the containers and keep telemetry data
+make up          # start shop + telemetry + agent API + UI
+# ... work ...
+make stop        # pause everything and keep telemetry data
 ```
 
-Use `make up` when you need only the shop and telemetry, or `make ui` when
-those dependencies already run elsewhere.
+Use `make down` to remove the containers while keeping volumes. `make ui` is
+only for debugging the incident service on the host.
 
 ### After you pull — run `bootstrap`, not `up`
 
@@ -194,8 +193,7 @@ successes), and the frontend's HTTP series carry **no `http_route` label**, so a
 |---|---|
 | `make help` | List every target |
 | `make bootstrap` | **After a clone, and after every pull.** Submodule, `.env`, `uv sync`, start, health-wait, URLs. Idempotent |
-| `make dev` | Daily one-command start: shop, telemetry, agent API, and incident UI |
-| `make up` | Daily start. Preflight, then up and wait for health |
+| `make up` | Daily start: shop, telemetry, agent API, and incident UI; wait for health |
 | `make preflight` | Name anything a fresh clone is missing, and print the current `MODE` |
 | `make verify` | Curl the health endpoints — our clean-machine install evidence |
 | `make urls` | Print the URL table |

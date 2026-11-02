@@ -1,5 +1,5 @@
 # Delegates container lifecycle to deploy/; keeps Python tooling here.
-.PHONY: help bootstrap up stop down reset config preflight verify urls reload-rules test lint fix guards eval-gate ui dev
+.PHONY: help bootstrap up stop down reset config preflight verify urls reload-rules test lint fix guards eval-gate ui
 
 help:
 	@$(MAKE) -C deploy help
@@ -8,8 +8,7 @@ help:
 	@echo "fix        apply the fixes lint reports, then re-run lint"
 	@echo "guards     just the structural guards"
 	@echo "eval-gate  replay development fixtures; no model calls or fault injection"
-	@echo "ui         start only the incident API/UI (loads .env)"
-	@echo "dev        start the shop, telemetry, agent API, and UI"
+	@echo "ui         run only the incident API/UI on the host for debugging"
 
 bootstrap up stop down reset config preflight verify urls reload-rules:
 	$(MAKE) -C deploy $@
@@ -45,11 +44,3 @@ eval-gate:
 
 ui:
 	uv run --env-file .env python -m oncall_service
-
-# One-command development stack. `bootstrap` is idempotent and reconciles the
-# submodule, Python workspace, .env, and Compose services before the incident
-# service stays in the foreground. Ctrl-C stops the API/UI; use `make stop`
-# afterward to pause the containers.
-dev:
-	$(MAKE) bootstrap
-	$(MAKE) ui
