@@ -167,3 +167,30 @@ This package does not exist yet. The contract says the service maps the finished
 | `diagnosis_reports` | graph private | One envelope per suspect, filled when the team fans out. The monitor reads `local_cause` from it. Solo does not produce these reports |
 
 `diagnosis_reports` and contract `hypotheses` stay separate. A report can deny a local cause without offering a statement, and it carries that copy's tool-call count. The statements inside a report append to `hypotheses`. The private remainder is `{service, local_cause, tool_calls}`.
+
+## How to run the solo demo
+
+`packages/oncall-graph/src/oncall_graph/solo_demo.py` is the live solo run. Pytest keeps the scripted `Shop`. This module builds `Solo` with `LiveShop`.
+
+From the `oncall-copilot` directory:
+
+```bash
+export OPENROUTER_API_KEY=...
+uv run python -m oncall_graph.solo_demo
+```
+
+`Solo()` builds the OpenRouter client before the first call. The key has to be in the environment when the process starts. The model is `openai/gpt-4o-mini` (`SPECIALIST_MODEL` in `oncall_graph.config`). The tool budget is 5. The checkpointer thread id is `astronomy-demo`. The alert text is the `ALERT` constant in `solo_demo.py`.
+
+`promql`, `log_search`, and `traces` read the Astronomy Shop lab. The default host is `10.241.2.69`. Set `ASTRONOMY_SHOP_HOST` to point the three clients at another host. The window is the last five minutes.
+
+| Tool | Lab endpoint |
+|---|---|
+| `promql` | Prometheus `http://<host>:9090` |
+| `log_search` | OpenSearch `http://<host>:32794` |
+| `traces` | Jaeger `http://<host>:32797` |
+
+A lab read prints `astronomy shop GET` or `astronomy shop POST` and the URL, then a short result line (`series`, `total`, or `count`). A scripted read prints `scripted shop` and `(no network)`. `search_runbooks`, `incident_record`, and `status_draft` stay on the scripted shop. `recent_changes` is commented out of `READ_TOOLS`, so the model is not offered it. The approval write and the checkout error-rate check stay on the scripted shop. Recovery is still a scripted rate under `0.05`.
+
+The approval checkpointer is in memory. Leave this process running. When the graph pauses it prints `status`, `action`, and `interrupt`. Type `approve` or `reject`. Any other reply is a reject. Approve resumes with the printed `payload_hash`. Reject writes nothing to the shop. After resume the process prints `final status`, `verification`, and `shop writes`.
+
+If the model proposes no action, `interrupt` is empty, `status` is `ESCALATED`, and the process returns without asking.
