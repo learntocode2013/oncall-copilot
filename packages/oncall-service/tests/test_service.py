@@ -84,3 +84,34 @@ def test_alert_contract_rejects_incomplete_payload_before_agent_start():
 
     assert response.status_code == 422
     assert "missing fields" in response.json()["detail"]
+
+
+def test_incident_feed_records_creation_and_state_updates():
+    app = create_app(demo_delay=0)
+    with TestClient(app) as client:
+        response = client.post("/api/demo")
+        assert response.status_code == 202
+        incident_id = response.json()["incident_id"]
+        waiting = _wait_for_status(client, incident_id, "AWAITING_APPROVAL")
+
+    feed_events = app.state.incidents.feed_events
+    assert feed_events[0]["type"] == "incident.created"
+    assert feed_events[0]["incident"]["incident_id"] == incident_id
+    assert feed_events[-1]["type"] == "approval.requested"
+    assert feed_events[-1]["incident"]["status"] == waiting["status"]
+
+
+def test_configured_frontend_origin_can_post_alerts():
+    app = create_app(demo_delay=0, cors_origins=("http://localhost:5173",))
+    with TestClient(app) as client:
+        response = client.options(
+            "/alerts",
+            headers={
+                "Origin": "http://localhost:5173",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"

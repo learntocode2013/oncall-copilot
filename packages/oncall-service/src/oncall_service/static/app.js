@@ -3,6 +3,7 @@ const state = {
   activeId: null,
   active: null,
   stream: null,
+  feed: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -66,6 +67,42 @@ async function loadIncidents(selectNewest = false) {
   }
 }
 
+function upsertIncident(incident) {
+  const index = state.incidents.findIndex((item) => item.incident_id === incident.incident_id);
+  if (index >= 0) state.incidents[index] = incident;
+  else state.incidents.unshift(incident);
+}
+
+function connectIncidentFeed() {
+  if (state.feed) state.feed.close();
+  const feed = new EventSource("/api/incidents/stream");
+  state.feed = feed;
+  feed.addEventListener("incident", (event) => {
+    const payload = JSON.parse(event.data);
+    const incident = payload.incident;
+    const isNew = !state.incidents.some((item) => item.incident_id === incident.incident_id);
+    upsertIncident(incident);
+    renderQueue();
+    if (isNew && !state.activeId) {
+      selectIncident(incident.incident_id);
+      showToast("New incident received");
+    } else if (isNew) {
+      const title = incident.alert?.labels?.alertname || "New incident";
+      showToast(`${title} added to the queue`);
+    }
+  });
+  feed.onopen = () => {
+    $("connection").classList.remove("offline");
+    if (!state.activeId) $("connection").lastChild.textContent = " Incident feed connected";
+  };
+  feed.onerror = () => {
+    if (!state.stream) {
+      $("connection").classList.add("offline");
+      $("connection").lastChild.textContent = " Feed reconnecting";
+    }
+  };
+}
+
 function renderQueue() {
   const active = state.incidents.filter((item) => !item.terminal).length;
   $("active-count").textContent = active;
@@ -107,9 +144,7 @@ function connectStream(incidentId) {
     const payload = JSON.parse(event.data);
     if (state.activeId !== incidentId) return;
     state.active = payload.incident;
-    const index = state.incidents.findIndex((item) => item.incident_id === incidentId);
-    if (index >= 0) state.incidents[index] = payload.incident;
-    else state.incidents.unshift(payload.incident);
+    upsertIncident(payload.incident);
     renderQueue();
     renderIncident();
     if (payload.incident.terminal) stream.close();
@@ -301,4 +336,4 @@ $("copy-command").addEventListener("click", async () => {
   showToast("Command copied");
 });
 
-loadIncidents();
+loadIncidents().then(connectIncidentFeed);

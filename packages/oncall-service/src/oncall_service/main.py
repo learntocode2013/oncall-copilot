@@ -11,12 +11,14 @@ import asyncio
 import json
 import os
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Body, FastAPI, Header, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from oncall_contracts.config import Topology
@@ -89,6 +91,8 @@ class IncidentStore:
     def __init__(self, demo_delay: float = 0.65):
         self.incidents: dict[str, Incident] = {}
         self.demo_delay = demo_delay
+        self.feed_events: list[dict[str, Any]] = []
+        self.feed_condition = asyncio.Condition()
 
     def get(self, incident_id: str) -> Incident:
         incident = self.incidents.get(incident_id)
@@ -136,6 +140,15 @@ class IncidentStore:
         incident.events.append(event)
         async with incident.condition:
             incident.condition.notify_all()
+        feed_event = {
+            "id": len(self.feed_events) + 1,
+            "type": kind,
+            "time": incident.updated_at,
+            "incident": incident.snapshot(),
+        }
+        self.feed_events.append(feed_event)
+        async with self.feed_condition:
+            self.feed_condition.notify_all()
 
 
 def _validate_alert(value: Any) -> Alert:
@@ -374,8 +387,25 @@ async def _resume_demo(store: IncidentStore, incident: Incident, decision: str) 
     await store.emit(incident, "verification.recovered", "Recovery verified below alert threshold")
 
 
-def create_app(*, demo_delay: float = 0.65) -> FastAPI:
+def create_app(
+    *,
+    demo_delay: float = 0.65,
+    cors_origins: Sequence[str] | None = None,
+) -> FastAPI:
     app = FastAPI(title="On-Call Copilot", version="0.1.0")
+    if cors_origins is None:
+        cors_origins = tuple(
+            origin.strip()
+            for origin in os.environ.get("ONCALL_CORS_ORIGINS", "").split(",")
+            if origin.strip()
+        )
+    if cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(cors_origins),
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["Content-Type", "Last-Event-ID"],
+        )
     store = IncidentStore(demo_delay=demo_delay)
     app.state.incidents = store
     app.mount("/assets", StaticFiles(directory=STATIC), name="assets")
@@ -396,6 +426,42 @@ def create_app(*, demo_delay: float = 0.65) -> FastAPI:
                 store.incidents.values(), key=lambda item: item.created_at, reverse=True
             )
         ]
+
+    @app.get("/api/incidents/stream")
+    async def stream_incidents(
+        request: Request,
+        last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+    ) -> StreamingResponse:
+        try:
+            cursor = max(0, int(last_event_id or 0))
+        except ValueError:
+            cursor = 0
+        cursor = min(cursor, len(store.feed_events))
+
+        async def events():
+            nonlocal cursor
+            while True:
+                while cursor < len(store.feed_events):
+                    event = store.feed_events[cursor]
+                    cursor += 1
+                    yield (
+                        f"id: {event['id']}\n"
+                        "event: incident\n"
+                        f"data: {json.dumps(event, separators=(',', ':'))}\n\n"
+                    )
+                if await request.is_disconnected():
+                    return
+                try:
+                    async with store.feed_condition:
+                        await asyncio.wait_for(store.feed_condition.wait(), timeout=15)
+                except TimeoutError:
+                    yield ": heartbeat\n\n"
+
+        return StreamingResponse(
+            events(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @app.post("/api/demo", status_code=202)
     async def start_demo() -> dict[str, Any]:
