@@ -10,15 +10,16 @@ Agentic AI Capstone — Project 4 (IT operations, "production" family). Team of 
 
 ## Status
 
-**The shop runs. The agent does not exist yet.**
+**The shop, solo agent, incident API, eval harness, and operations UI run.**
 
 | Works today | Not built yet |
 |---|---|
-| `make bootstrap` / `up` / `down` / `verify` — the full Astronomy Shop with Prometheus, Grafana, Jaeger and OpenSearch | The incident API and UI (`localhost:8000`) |
+| `make bootstrap` / `up` / `down` / `verify` — the full Astronomy Shop with Prometheus, Grafana, Jaeger and OpenSearch | Durable incident storage |
+| `make dev` — the complete local stack, including the incident API/UI (`localhost:8000`) | |
 | `oncall-contracts` — `IncidentState`, `Topology`, `Complexity`, `RunRecord` | The four MCP servers |
-| `make test` / `make lint` | The incident commander and its specialists |
-| | Runbooks, the fault injector, the eval harness |
-| | `make guards` — fails until `tests/test_guards.py` exists |
+| Solo incident agent with exact-action approval | Multi-agent commander and specialists |
+| Eval harness, structural guards, and red-team fixtures | Durable runbooks and incident memory |
+| `make test` / `make lint` / `make guards` | |
 
 Background reading, in this order:
 
@@ -88,7 +89,7 @@ That is the whole setup. `make bootstrap` runs six things in order:
 
 1. `git submodule update --init --recursive` — fetches the pinned demo at `3.1.0`
 2. creates `.env` from `.env.example` if it is missing
-3. warns (does not stop) if `OPENROUTER_API_KEY` is empty — nothing calls a model yet
+3. warns (does not stop) if `OPENROUTER_API_KEY` is empty — the guided demo works without it, but live investigations do not
 4. `uv sync` — installs the Python workspace
 5. `docker compose up --wait` — starts the stack and waits for every container to be healthy
 6. `verify` + `urls` — curls the health endpoints and prints where everything is
@@ -102,12 +103,13 @@ health-wait, just run it again: everything is cached and the second pass is quic
 ### Every day after
 
 ```bash
-make up          # start — about 30s once images are cached
-#  ... work ...
-make down        # stop and clean up
+make dev         # reconcile setup, then start shop + telemetry + agent API + UI
+# Ctrl-C stops the API/UI; then:
+make stop        # pause the containers and keep telemetry data
 ```
 
-Or `make stop` / `make up` to pause and resume in seconds with telemetry data intact.
+Use `make up` when you need only the shop and telemetry, or `make ui` when
+those dependencies already run elsewhere.
 
 ### After you pull — run `bootstrap`, not `up`
 
@@ -164,7 +166,7 @@ talk to.
 | Jaeger | http://localhost:8080/jaeger/ui/ |
 | **Feature flags** (your fault switch) | http://localhost:8080/feature |
 | Prometheus | http://localhost:9090 |
-| _Incident UI (ours)_ | _`localhost:8000` — not built yet_ |
+| Incident UI (ours) | http://localhost:8000/ |
 
 ### Your first five minutes with the stack
 
@@ -192,6 +194,7 @@ successes), and the frontend's HTTP series carry **no `http_route` label**, so a
 |---|---|
 | `make help` | List every target |
 | `make bootstrap` | **After a clone, and after every pull.** Submodule, `.env`, `uv sync`, start, health-wait, URLs. Idempotent |
+| `make dev` | Daily one-command start: shop, telemetry, agent API, and incident UI |
 | `make up` | Daily start. Preflight, then up and wait for health |
 | `make preflight` | Name anything a fresh clone is missing, and print the current `MODE` |
 | `make verify` | Curl the health endpoints — our clean-machine install evidence |

@@ -72,8 +72,8 @@ bootstrap:
 	@cd $(ONCALL_ROOT) && grep -qE '^OPENROUTER_API_KEY=.+' .env || { \
 	  echo ""; \
 	  echo "NOTE: OPENROUTER_API_KEY is empty in .env."; \
-	  echo "      Not needed yet — nothing calls a model. You WILL need it"; \
-	  echo "      before the agent runs. https://openrouter.ai/keys"; \
+	  echo "      The guided demo will work, but live investigations will fail"; \
+	  echo "      until you add a key. https://openrouter.ai/keys"; \
 	  echo ""; }
 	@cd $(ONCALL_ROOT) && uv sync
 	$(COMPOSE) up --force-recreate --remove-orphans --detach --wait --wait-timeout 600

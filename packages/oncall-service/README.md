@@ -3,14 +3,15 @@
 The first incident API and operations console. It is deliberately an incident
 state viewer and approval surface, not a chatbot.
 
-From the repository root:
+To start the complete local development stack from the repository root:
 
 ```bash
-set -a
-source .env
-set +a
-make ui
+make dev
 ```
+
+This starts the Astronomy Shop and telemetry backends, waits for them to become
+healthy, loads `.env`, and then starts the incident API/UI on port 8000. Use
+`make ui` when the external dependencies are already running elsewhere.
 
 Open <http://127.0.0.1:8000>. **Run guided demo** uses no model and no live
 infrastructure. **Start live investigation** runs the current C1 solo agent:
