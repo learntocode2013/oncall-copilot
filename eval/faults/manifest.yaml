@@ -1,0 +1,37 @@
+# P4-owned ground truth. The first entry is behaviorally verified against the
+# running Astronomy Shop; structural runbooks join only after their detection
+# and recovery signals have been observed.
+faults:
+  - fault_id: payment-failure
+    enable:
+      action: set_flag
+      args:
+        flag: paymentFailure
+        variant: "100%"
+    disable:
+      action: set_flag
+      args:
+        flag: paymentFailure
+        variant: "off"
+    root_cause_services:
+      - payment
+    complexity: single
+    correct_action:
+      action: set_flag
+      args:
+        flag: paymentFailure
+        variant: "off"
+    detect:
+      query: >-
+        sum(rate(http_server_request_duration_seconds_count{
+        service_name="frontend",http_response_status_code="422"}[5m]))
+        / (sum(rate(http_server_request_duration_seconds_count{
+        service_name="frontend",http_response_status_code="422"}[5m]))
+        + sum(rate(demo_payment_transactions_total[5m])))
+      operator: ">="
+      threshold: 0.5
+    recovery:
+      query: >-
+        sum(rate(demo_payment_transactions_total[5m]))
+      operator: ">"
+      threshold: 0

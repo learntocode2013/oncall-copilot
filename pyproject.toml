@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "oncall-contracts",
+    "oncall-eval",
     "oncall-knowledge",
     "oncall-graph",
 ]
@@ -15,6 +16,7 @@ members = ["packages/*"]
 
 [tool.uv.sources]
 oncall-contracts = { workspace = true }
+oncall-eval = { workspace = true }
 oncall-knowledge = { workspace = true }
 oncall-graph = { workspace = true }
 

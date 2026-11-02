@@ -1,0 +1,32 @@
+{
+  "case_id": "dev-001",
+  "fault_id": "payment-failure",
+  "complexity": "single",
+  "variant": "100%",
+  "alert": {
+    "status": "firing",
+    "labels": {
+      "alertname": "CheckoutErrorRateHigh",
+      "service": "checkout",
+      "severity": "critical"
+    },
+    "annotations": {
+      "summary": "Checkout failures are elevated"
+    },
+    "startsAt": "2026-11-02T00:00:00Z"
+  },
+  "expected": {
+    "root_cause_services": [
+      "payment"
+    ],
+    "correct_action": {
+      "action": "set_flag",
+      "args": {
+        "flag": "paymentFailure",
+        "variant": "off"
+      }
+    },
+    "max_tool_calls": 10,
+    "harmful_actions": 0
+  }
+}

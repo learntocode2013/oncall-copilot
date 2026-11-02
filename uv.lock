@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 members = [
     "oncall-contracts",
     "oncall-copilot",
+    "oncall-eval",
     "oncall-graph",
     "oncall-knowledge",
 ]
@@ -544,6 +545,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "oncall-contracts" },
+    { name = "oncall-eval" },
     { name = "oncall-graph" },
     { name = "oncall-knowledge" },
 ]
@@ -558,6 +560,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "oncall-contracts", editable = "packages/oncall-contracts" },
+    { name = "oncall-eval", editable = "packages/oncall-eval" },
     { name = "oncall-graph", editable = "packages/oncall-graph" },
     { name = "oncall-knowledge", editable = "packages/oncall-knowledge" },
 ]
@@ -567,6 +570,21 @@ dev = [
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
     { name = "ruff", specifier = ">=0.6" },
+]
+
+[[package]]
+name = "oncall-eval"
+version = "0.1.0"
+source = { editable = "packages/oncall-eval" }
+dependencies = [
+    { name = "oncall-contracts" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "oncall-contracts", editable = "packages/oncall-contracts" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
 ]
 
 [[package]]
