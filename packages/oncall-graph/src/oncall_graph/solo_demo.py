@@ -13,7 +13,7 @@ from __future__ import annotations
 from .astronomy_shop import LiveShop
 from .topologies.c1_single import Solo, interrupt_value
 
-#ALERT = "checkout error rate above 5% for five minutes"
+# ALERT = "checkout error rate above 5% for five minutes"
 ALERT = "payment service failed"
 
 
