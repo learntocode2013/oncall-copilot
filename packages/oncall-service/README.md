@@ -9,13 +9,27 @@ To start the complete application from the repository root:
 make up
 ```
 
-This builds the incident image, starts the Astronomy Shop and telemetry
+This builds the incident and lab images, starts the Astronomy Shop and telemetry
 backends, waits for them to become healthy, checks the health endpoints, and
-prints the URLs. The incident API/UI is on port 8000. `make stop` pauses the
+prints the URLs. The incident API/UI is on port 8000. The lab is on port 8020.
+`make stop` pauses the
 containers, and the next `make up` starts them again. `make down` removes the
 containers and keeps volumes. `make reset` also wipes Prometheus and OpenSearch
 data. Use `make ui` only to run the service on the host for debugging when its
 external dependencies already run elsewhere.
+
+A firing shop alert starts the agent on its own. Grafana evaluates
+`CheckoutErrorRateHigh` and posts the notification group to `POST /alerts`.
+The rule waits until the checkout error rate has stayed above 5% for five
+minutes, so a quiet shop does not open an incident. The console follows that
+incident when none is selected. A repeat notification for an investigation
+that is still open does not start a second agent. The guided demo and the
+evaluation harness are separate: the demo never calls the model, and the
+harness posts one alert itself so a scored run does not wait five minutes.
+
+Fault controls are not on this console. The lab at <http://127.0.0.1:8020/>
+arms a fault from the manifest, or pages this API with the checkout symptom.
+The root cause stays on the lab page.
 
 Open <http://127.0.0.1:8000>. **Run guided demo** uses no model and no live
 infrastructure. **Start live investigation** runs the current C1 solo agent:

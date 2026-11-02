@@ -9,6 +9,7 @@ dependencies = [
     "oncall-eval",
     "oncall-knowledge",
     "oncall-graph",
+    "oncall-lab",
     "oncall-service",
 ]
 
@@ -20,6 +21,7 @@ oncall-contracts = { workspace = true }
 oncall-eval = { workspace = true }
 oncall-knowledge = { workspace = true }
 oncall-graph = { workspace = true }
+oncall-lab = { workspace = true }
 oncall-service = { workspace = true }
 
 [dependency-groups]

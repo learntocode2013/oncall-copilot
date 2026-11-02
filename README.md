@@ -16,7 +16,7 @@ Agentic AI Capstone — Project 4 (IT operations, "production" family). Team of 
 |---|---|
 | `make bootstrap` / `up` / `down` / `verify` — the Astronomy Shop, telemetry, incident API, and UI | Durable incident storage |
 | `oncall-contracts` — `IncidentState`, `Topology`, `Complexity`, `RunRecord` | The four MCP servers |
-| Solo incident agent with exact-action approval | Multi-agent commander and specialists |
+| Solo incident agent with exact-action approval. A firing Grafana `CheckoutErrorRateHigh` alert posts `/alerts` and starts it. The lab on port 8020 can arm a manifest fault or page that symptom | Multi-agent commander and specialists |
 | Eval harness, structural guards, and red-team fixtures | Durable runbooks and incident memory |
 | `make test` / `make lint` / `make guards` | |
 
@@ -90,8 +90,8 @@ That is the whole setup. `make bootstrap` runs six things in order:
 2. creates `.env` from `.env.example` if it is missing
 3. warns (does not stop) if `OPENROUTER_API_KEY` is empty — the guided demo works without it, but live investigations do not
 4. `uv sync` — installs the Python workspace on the host
-5. `make up` — builds the incident image, starts the stack, and waits until every container with a health check is healthy
-6. `verify` + `urls` — curls Prometheus, the shop, and the incident API, then prints where everything is
+5. `make up` — builds the incident and lab images, starts the stack, and waits until every container with a health check is healthy
+6. `verify` + `urls` — curls Prometheus, the shop, the incident API, and the lab, then prints where everything is
 
 **Forgot `--recurse-submodules`?** Step 1 repairs it. That failure mode is gone.
 
@@ -102,13 +102,13 @@ health-wait, just run it again: everything is cached and the second pass is quic
 ### Every day after
 
 ```bash
-make up          # build the incident image, start the stack, verify, print URLs
+make up          # build the incident and lab images, start the stack, verify, print URLs
 # ... work ...
 make stop        # pause the containers and keep telemetry data
 ```
 
 The next `make up` starts those same containers. It recreates the incident
-service only when that image changed. Use `make down` to remove the containers
+service or the lab only when that image changed. Use `make down` to remove the containers
 while keeping volumes. `make ui` is only for debugging the incident service on
 the host.
 
@@ -169,10 +169,11 @@ talk to.
 | **Feature flags** (your fault switch) | http://localhost:8080/feature |
 | Prometheus | http://localhost:9090 |
 | Incident UI (ours) | http://localhost:8000/ |
+| Lab (ours) | http://localhost:8020/ |
 
 ### Your first five minutes with the stack
 
-Open the feature-flag UI, switch `paymentFailure` **on**, and watch Prometheus:
+Open the lab at http://localhost:8020/ and arm `payment-failure`, or use the feature-flag UI and switch `paymentFailure` **on**. Then watch Prometheus:
 
 ```promql
 sum(rate(http_server_request_duration_seconds_count{service_name="frontend",
@@ -196,9 +197,9 @@ successes), and the frontend's HTTP series carry **no `http_route` label**, so a
 |---|---|
 | `make help` | List every target |
 | `make bootstrap` | **After a clone, and after every pull.** Submodule, `.env`, host `uv sync`, then `up`. Idempotent |
-| `make up` | Build the incident image, start the stack, wait for health, verify, print URLs |
+| `make up` | Build the incident and lab images, start the stack, wait for health, verify, print URLs |
 | `make preflight` | Name anything a fresh clone is missing, and print the current `MODE` |
-| `make verify` | Curl Prometheus, the shop frontend, and the incident API |
+| `make verify` | Curl Prometheus, the shop frontend, the incident API, and the lab |
 | `make urls` | Print the URL table |
 | `make stop` | Halt containers, keep data. The next `make up` starts those containers again |
 | `make down` | Remove containers, keep volumes |

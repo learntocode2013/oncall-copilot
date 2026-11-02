@@ -1,0 +1,14 @@
+[project]
+name = "oncall-lab"
+version = "0.1.0"
+description = "Operator lab for arming manifest faults and paging the incident API."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "pyyaml>=6.0.3",
+    "uvicorn[standard]>=0.34",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

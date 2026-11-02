@@ -43,6 +43,8 @@ ALLOWED_IMPORTS: dict[str, set[str]] = {
     "oncall_graph": {"oncall_contracts", "oncall_knowledge", "oncall_tools"},
     "oncall_service": {"oncall_contracts", "oncall_graph"},
     "oncall_eval": {"oncall_contracts"},
+    # The lab holds the fault manifest's root cause. Nothing else may import it.
+    "oncall_lab": set(),
 }
 
 
@@ -163,6 +165,18 @@ def test_nothing_imports_oncall_eval() -> None:
         )
     ]
     assert not offenders, f"these files import oncall_eval: {offenders}"
+
+
+def test_nothing_imports_oncall_lab() -> None:
+    """The lab shows the operator the root cause. The agent must not import it."""
+    offenders = [
+        str(p.relative_to(ROOT))
+        for p in python_files(exclude_package="oncall-lab")
+        if re.search(
+            r"^\s*(?:from|import)\s+oncall_lab\b", p.read_text(encoding="utf-8"), re.MULTILINE
+        )
+    ]
+    assert not offenders, f"these files import oncall_lab: {offenders}"
 
 
 def test_heldout_never_referenced_outside_eval() -> None:

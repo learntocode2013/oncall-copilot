@@ -1,0 +1,82 @@
+# Grafana evaluates the checkout rule and posts the firing group to POST /alerts.
+# The incident API starts the solo agent from that body. Repeat notifications
+# for an investigation that is still open do not start a second one.
+#
+# Idle shop: both rate terms are zero, the division is NaN, and Grafana treats
+# no data as OK, so a quiet shop does not page. paymentFailure drives the
+# ratio to about 1.0. The alert waits five minutes so one scrape cannot fire it.
+# The evaluation harness still posts /alerts itself and does not wait for this.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: oncall-copilot
+    receivers:
+      - uid: oncall-copilot-webhook
+        type: webhook
+        settings:
+          url: http://oncall-service:8000/alerts
+          httpMethod: POST
+        disableResolveMessage: false
+
+groups:
+  - orgId: 1
+    name: oncall-copilot
+    folder: OnCallCopilot
+    interval: 1m
+    rules:
+      - uid: oncall-checkout-error-rate
+        title: CheckoutErrorRateHigh
+        condition: breach
+        data:
+          - refId: ratio
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: webstore-metrics
+            model:
+              editorMode: code
+              expr: |
+                sum(rate(http_server_request_duration_seconds_count{service_name="frontend",http_response_status_code="422"}[5m]))
+                / (sum(rate(http_server_request_duration_seconds_count{service_name="frontend",http_response_status_code="422"}[5m]))
+                + sum(rate(demo_payment_transactions_total[5m]))) > 0.05
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: ratio
+          - refId: breach
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - ratio
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: ratio
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: breach
+              type: threshold
+        noDataState: OK
+        execErrState: OK
+        for: 5m
+        annotations:
+          summary: Checkout error rate above 5% for five minutes
+        labels:
+          service: checkout
+          severity: critical
+        isPaused: false
+        notification_settings:
+          receiver: oncall-copilot

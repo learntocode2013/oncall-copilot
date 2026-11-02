@@ -9,6 +9,7 @@ members = [
     "oncall-eval",
     "oncall-graph",
     "oncall-knowledge",
+    "oncall-lab",
     "oncall-service",
 ]
 
@@ -670,6 +671,7 @@ dependencies = [
     { name = "oncall-eval" },
     { name = "oncall-graph" },
     { name = "oncall-knowledge" },
+    { name = "oncall-lab" },
     { name = "oncall-service" },
 ]
 
@@ -686,6 +688,7 @@ requires-dist = [
     { name = "oncall-eval", editable = "packages/oncall-eval" },
     { name = "oncall-graph", editable = "packages/oncall-graph" },
     { name = "oncall-knowledge", editable = "packages/oncall-knowledge" },
+    { name = "oncall-lab", editable = "packages/oncall-lab" },
     { name = "oncall-service", editable = "packages/oncall-service" },
 ]
 
@@ -743,6 +746,23 @@ dependencies = [
 requires-dist = [
     { name = "oncall-contracts", editable = "packages/oncall-contracts" },
     { name = "pyyaml", specifier = ">=6.0.3" },
+]
+
+[[package]]
+name = "oncall-lab"
+version = "0.1.0"
+source = { editable = "packages/oncall-lab" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "pyyaml" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.34" },
 ]
 
 [[package]]

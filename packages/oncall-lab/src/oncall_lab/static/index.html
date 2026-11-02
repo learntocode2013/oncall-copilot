@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="On-Call Copilot operator lab for arming faults and paging the agent" />
+    <title>On-Call Copilot · Lab</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="On-Call Copilot lab">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span><strong>On-Call</strong> Lab</span>
+      </a>
+      <a class="console-link" id="console-link" href="http://127.0.0.1:8000/">Incident console</a>
+    </header>
+    <main>
+      <p class="intro">
+        Arm a fault in the shop, or page the agent with the symptom only. The
+        incident console does not show the root cause. Topology is
+        <code>c1_single</code>. Other topologies are not available.
+      </p>
+      <p class="intro caution">
+        Arm and disarm edit the live flag file. Disarm before you commit. A
+        flag left on breaks the shop for the next person who pulls. The
+        feature-flag page keeps the copy it loaded at startup, and saving
+        there can put the old value back.
+      </p>
+      <form class="budget" id="budget-form">
+        <label for="tool-budget">Tool budget</label>
+        <input id="tool-budget" name="tool-budget" type="number" min="1" max="100" value="10" />
+        <span>Applies to the next page. The agent stops after this many tool calls.</span>
+      </form>
+      <p class="status" id="status" role="status"></p>
+      <div id="faults"></div>
+    </main>
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

@@ -49,7 +49,7 @@ COMPOSE := cd $(ONCALL_ROOT) && docker compose \
 
 help:
 	@echo "bootstrap  one command after a clone: submodule, .env, uv sync, then up"
-	@echo "up         build our image, start the stack, verify, print URLs"
+	@echo "up         build our images, start the stack, verify, print URLs"
 	@echo "stop       halt containers, keep data (the next up starts them again)"
 	@echo "down       remove containers, keep volumes"
 	@echo "reset      also WIPE Prometheus/OpenSearch data"
@@ -91,12 +91,12 @@ preflight:
 
 # No --force-recreate: `stop` leaves the containers in place, and the next
 # `up` starts them. Compose still recreates a service whose config or image
-# changed, so a rebuilt oncall-service replaces only that container.
+# changed, so a rebuilt oncall-service or oncall-lab replaces only that container.
 #
-# Build only our image. `compose up --build` would also rebuild every demo
+# Build only our images. `compose up --build` would also rebuild every demo
 # service that has a Dockerfile.
 up: preflight
-	$(COMPOSE) build oncall-service
+	$(COMPOSE) build oncall-service oncall-lab
 	$(COMPOSE) up --remove-orphans --detach --wait --wait-timeout 600
 	@$(MAKE) verify
 	@$(MAKE) urls
@@ -124,6 +124,7 @@ verify:
 	@printf 'prometheus    '; curl -fsS localhost:9090/-/ready && echo
 	@printf 'shop frontend '; curl -fsS -o /dev/null -w '%{http_code}\n' localhost:8080/
 	@printf 'incident API  '; curl -fsS localhost:8000/healthz && echo
+	@printf 'lab           '; curl -fsS localhost:8020/healthz && echo
 
 urls:
 	@echo ""
@@ -133,6 +134,7 @@ urls:
 	@echo "  Feature flags   http://localhost:8080/feature"
 	@echo "  Prometheus      http://localhost:9090"
 	@echo "  Incident UI     http://localhost:8000/"
+	@echo "  Lab             http://localhost:8020/"
 
 reload-rules:
 	curl -X POST http://localhost:9090/-/reload

@@ -28,6 +28,8 @@ from oncall_graph.nodes.remediate import command_payload, payload_hash
 from oncall_graph.topologies.c1_single import Solo, interrupt_value
 from pydantic import BaseModel
 
+from .alerts import AlertPayloadError, firing_alerts, is_notification_group
+
 STATIC = Path(__file__).with_name("static")
 TERMINAL = frozenset({"RECOVERED", "REJECTED", "ESCALATED", "APPROVAL_MISMATCH"})
 
@@ -93,6 +95,20 @@ class IncidentStore:
         self.demo_delay = demo_delay
         self.feed_events: list[dict[str, Any]] = []
         self.feed_condition = asyncio.Condition()
+        # fingerprint (or alertname + startsAt) -> incident id. Grafana resends
+        # the same firing group on every evaluation; a terminal incident does
+        # not block the next occurrence.
+        self.alert_keys: dict[str, str] = {}
+
+    def reserve_alert(self, key: str, incident_id: str) -> Incident | None:
+        """Claim this firing alert, or return the investigation already open for it."""
+        current = self.alert_keys.get(key)
+        if current:
+            incident = self.incidents.get(current)
+            if incident is not None and incident.status not in TERMINAL:
+                return incident
+        self.alert_keys[key] = incident_id
+        return None
 
     def get(self, incident_id: str) -> Incident:
         incident = self.incidents.get(incident_id)
@@ -222,6 +238,25 @@ def _system_run(incident: Incident, raw: dict[str, Any]) -> dict[str, Any]:
         "playbook_hash": None,
         "error": incident.error,
     }
+
+
+async def _start_live(
+    store: IncidentStore,
+    alert: Alert,
+    *,
+    incident_id: str,
+    config_id: Topology,
+    tool_budget: int,
+) -> Incident:
+    incident = await store.create(
+        alert=alert,
+        incident_id=incident_id,
+        mode="hybrid-live",
+        config_id=config_id,
+        tool_budget=tool_budget,
+    )
+    asyncio.create_task(_run_real(store, incident))
+    return incident
 
 
 async def _run_real(store: IncidentStore, incident: Incident, resume: dict | None = None) -> None:
@@ -387,6 +422,35 @@ async def _resume_demo(store: IncidentStore, incident: Incident, decision: str) 
     await store.emit(incident, "verification.recovered", "Recovery verified below alert threshold")
 
 
+async def _accept_notification(
+    store: IncidentStore,
+    body: dict[str, Any],
+    *,
+    tool_budget: int,
+) -> dict[str, Any]:
+    """Start one investigation per firing alert. A repeat of an open one is a no-op."""
+    try:
+        batch = firing_alerts(body)
+    except AlertPayloadError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    snapshots = []
+    for alert, key in batch:
+        incident_id = f"alert-{uuid.uuid4().hex[:12]}"
+        existing = store.reserve_alert(key, incident_id)
+        if existing is not None:
+            snapshots.append(existing.snapshot())
+            continue
+        incident = await _start_live(
+            store,
+            alert,
+            incident_id=incident_id,
+            config_id="c1_single",
+            tool_budget=tool_budget,
+        )
+        snapshots.append(incident.snapshot())
+    return {"incidents": snapshots}
+
+
 def create_app(
     *,
     demo_delay: float = 0.65,
@@ -495,14 +559,15 @@ def create_app(
     ) -> dict[str, Any]:
         if config_id != "c1_single":
             raise HTTPException(status_code=422, detail="only c1_single is implemented")
-        incident = await store.create(
-            alert=_validate_alert(alert_body),
+        if is_notification_group(alert_body):
+            return await _accept_notification(store, alert_body, tool_budget=tool_budget)
+        incident = await _start_live(
+            store,
+            _validate_alert(alert_body),
             incident_id=incident_id or f"incident-{uuid.uuid4().hex[:12]}",
-            mode="hybrid-live",
             config_id=config_id,
             tool_budget=tool_budget,
         )
-        asyncio.create_task(_run_real(store, incident))
         return incident.snapshot()
 
     @app.get("/incidents/{incident_id}")
