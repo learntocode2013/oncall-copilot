@@ -19,7 +19,7 @@ READ_TOOLS = (
     "promql",
     "log_search",
     "traces",
-    "recent_changes",
+    # "recent_changes",
     "search_runbooks",
     "incident_record",
     "status_draft",
