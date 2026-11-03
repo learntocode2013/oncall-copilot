@@ -2,9 +2,9 @@
 # ruff: noqa: TRY004
 """The visible incident plan, and the checks that keep it executable.
 
-Valid JSON is not a valid plan. ``validate_plan`` rejects the whole proposal
-when a tool is unknown, a command is shell-shaped, more than one action is
-proposed, or an action has no expected effect. Nothing in a rejected plan runs.
+``validate_plan`` checks the visible plan: stage and read steps. Hypotheses and
+the one write are validated beside it. A shell-shaped command, an unknown tool,
+or a write with no expected effect is rejected. Nothing in a rejected plan runs.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ READ_TOOLS = (
     "promql",
     "log_search",
     "traces",
-    "recent_changes",
+    # "recent_changes",
     "search_runbooks",
     "incident_record",
     "status_draft",
@@ -36,23 +36,23 @@ ACTION_ARGS = {
 }
 
 
-def default_rollback(tool, args):
-    """The allow-listed inverse of one action, used when the model did not spell one out."""
-    if tool not in ACTION_TOOLS:
-        raise ValueError(f"unknown tool: {tool!r}")
+def default_rollback(action, args):
+    """The procedure for the inverse. Code derives the shop call from the action itself."""
+    if action not in ACTION_TOOLS:
+        raise ValueError(f"unknown action: {action!r}")
     args = dict(args or {})
-    if tool == "set_flag":
+    if action == "set_flag":
         enabled = args.get("enabled")
         flag = args.get("flag")
         if not isinstance(enabled, bool):
             raise ValueError("set_flag.enabled must be a boolean")
         if not isinstance(flag, str) or not flag.strip():
             raise ValueError("set_flag.flag must be a non-empty string")
-        return {"tool": "set_flag", "args": {"flag": flag, "enabled": not enabled}}
+        return f"set_flag {flag} enabled={str(not enabled).lower()}"
     service = args.get("service")
     if not isinstance(service, str) or not service.strip():
-        raise ValueError(f"{tool}.service must be a non-empty string")
-    return {"tool": "rollback", "args": {"service": service}}
+        raise ValueError(f"{action}.service must be a non-empty string")
+    return f"rollback {service}"
 
 
 _TOKEN = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
@@ -132,83 +132,65 @@ def _validate_args(tool, args):
 
 
 def _validate_rollback(rollback):
-    if isinstance(rollback, str):
-        if not rollback.strip():
-            raise ValueError("missing rollback")
-        _reject_shell(rollback, action=True)
-        return rollback.strip()
-    if isinstance(rollback, dict):
-        tool = rollback.get("tool")
-        if tool not in ACTION_TOOLS:
-            raise ValueError(f"unknown tool: {tool!r}")
-        return {"tool": tool, "args": _validate_args(tool, rollback.get("args") or {})}
-    raise ValueError("rollback must be a procedure or one allow-listed action")
+    if not isinstance(rollback, str) or not rollback.strip():
+        raise ValueError("rollback must be a procedure string")
+    _reject_shell(rollback, action=True)
+    return rollback.strip()
 
 
-def _validate_action(action):
+def validate_action(action):
+    """One write. The command key is ``action``. Rollback is a procedure string."""
     if not isinstance(action, dict):
         raise ValueError("an action must be an object")
-    tool = action.get("tool")
-    if tool not in ACTION_TOOLS:
-        raise ValueError(f"unknown tool: {tool!r}")
+    if "tool" in action:
+        raise ValueError("the command key is action")
+    name = action.get("action")
+    if name not in ACTION_TOOLS:
+        raise ValueError(f"unknown action: {name!r}")
     effect = action.get("expected_effect")
     if not isinstance(effect, str) or not effect.strip():
         raise ValueError("missing expected effect")
     if "rollback" not in action or action.get("rollback") in (None, ""):
         raise ValueError("missing rollback")
     return {
-        "tool": tool,
-        "args": _validate_args(tool, action.get("args") or {}),
+        "action": name,
+        "args": _validate_args(name, action.get("args") or {}),
         "expected_effect": effect.strip(),
         "rollback": _validate_rollback(action.get("rollback")),
     }
 
 
-def _validate_hypotheses(raw):
+def validate_hypotheses(raw):
+    """Contract hypotheses. Evidence is references, not log lines."""
     if raw is None:
         return []
     if not isinstance(raw, list):
         raise ValueError("hypotheses must be a list")
     clean = []
-    for index, item in enumerate(raw, start=1):
+    for item in raw:
         if not isinstance(item, dict):
             raise ValueError("each hypothesis must be an object")
-        evidence = item.get("evidence") or []
-        if isinstance(evidence, str):
-            evidence = [evidence]
-        if not isinstance(evidence, list):
-            raise ValueError("hypothesis evidence must be a list")
-        rank = item.get("rank", index)
-        if isinstance(rank, bool) or not isinstance(rank, int):
-            raise ValueError("hypothesis rank must be an integer")
+        service = item.get("service")
+        statement = item.get("statement")
+        refs = item.get("evidence_refs")
+        confidence = item.get("confidence")
+        if not isinstance(service, str) or not service.strip():
+            raise ValueError("hypothesis service must be a non-empty string")
+        if not isinstance(statement, str) or not statement.strip():
+            raise ValueError("hypothesis statement must be a non-empty string")
+        if not isinstance(refs, list) or not all(isinstance(ref, str) for ref in refs):
+            raise ValueError("hypothesis evidence_refs must be a list of strings")
+        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
+            raise ValueError("hypothesis confidence must be a number")
         clean.append(
             {
-                "service": str(item.get("service") or ""),
-                "statement": str(item.get("statement") or ""),
-                "evidence": [str(piece) for piece in evidence],
-                "rank": rank,
-                "contradicted": bool(item.get("contradicted", False)),
+                "service": service.strip(),
+                "statement": statement.strip(),
+                "evidence_refs": list(refs),
+                "confidence": float(confidence),
             }
         )
     return clean
-
-
-def _action_slots(plan):
-    """Every place a write can hide. More than one rejects the whole plan."""
-    slots = []
-    for key in ("proposed_action", "action"):
-        value = plan.get(key)
-        if value:
-            slots.append(value)
-    extra = plan.get("actions")
-    if isinstance(extra, list):
-        slots.extend(item for item in extra if item)
-    elif extra:
-        slots.append(extra)
-    for step in plan.get("steps") or []:
-        if isinstance(step, dict) and step.get("tool") in ACTION_TOOLS:
-            slots.append(step)
-    return slots
 
 
 def _read_steps(plan):
@@ -221,7 +203,7 @@ def _read_steps(plan):
             raise ValueError("each step must be an object")
         tool = step.get("tool")
         if tool in ACTION_TOOLS:
-            continue
+            raise ValueError("writes do not belong in the plan")
         if tool not in READ_TOOLS:
             raise ValueError(f"unknown tool: {tool!r}")
         args = step.get("args") or {}
@@ -233,11 +215,7 @@ def _read_steps(plan):
 
 
 def validate_plan(plan):
-    """Return a cleaned plan, or raise ``ValueError`` and run nothing.
-
-    A cleaned plan has ``stage``, ``hypotheses`` (each with its evidence),
-    read-only ``steps``, and at most one ``proposed_action``.
-    """
+    """Return ``{stage, steps}``, or raise ``ValueError`` and run nothing."""
     if isinstance(plan, str):
         try:
             plan = json.loads(plan)
@@ -245,44 +223,33 @@ def validate_plan(plan):
             raise ValueError("a plan must be JSON") from exc
     if not isinstance(plan, dict):
         raise ValueError(f"a plan must be an object, got {type(plan).__name__}")
+    if any(key in plan for key in ("hypotheses", "proposed_action", "action", "actions")):
+        raise ValueError("hypotheses and the action belong beside the plan")
 
     stage = plan.get("stage") or "scope"
     if stage not in PLAN_STAGES:
         raise ValueError(f"unknown stage: {stage!r}")
-
-    slots = _action_slots(plan)
-    if len(slots) > 1:
-        raise ValueError("a plan may propose only one action")
-
-    proposed = _validate_action(slots[0]) if slots else None
-    return {
-        "stage": stage,
-        "hypotheses": _validate_hypotheses(plan.get("hypotheses")),
-        "steps": _read_steps(plan),
-        "proposed_action": proposed,
-    }
+    return {"stage": stage, "steps": _read_steps(plan)}
 
 
-def format_plan(plan) -> str:
-    """Render the plan the engineer is supposed to be able to see."""
+def format_plan(plan, hypotheses=None, proposed_action=None) -> str:
+    """Render the stage, the remaining reads, and the sibling explanations and write."""
     stage = (plan or {}).get("stage") or "scope"
     progress = " → ".join(f"[{name}]" if name == stage else name for name in PLAN_STAGES)
     lines = [progress]
-    for hypothesis in (plan or {}).get("hypotheses") or []:
-        flag = " contradicted" if hypothesis.get("contradicted") else ""
+    for hypothesis in hypotheses or []:
         lines.append(
-            f"  H{hypothesis.get('rank')}: [{hypothesis.get('service')}] "
-            f"{hypothesis.get('statement')}{flag}"
+            f"  [{hypothesis.get('service')}] {hypothesis.get('statement')} "
+            f"({hypothesis.get('confidence')})"
         )
-        for piece in hypothesis.get("evidence") or []:
-            lines.append(f"    evidence: {piece}")
+        for ref in hypothesis.get("evidence_refs") or []:
+            lines.append(f"    evidence: {ref}")
     for step in (plan or {}).get("steps") or []:
         lines.append(f"  step: {step.get('tool')} {step.get('args')}")
-    action = (plan or {}).get("proposed_action")
-    if action:
+    if proposed_action:
         lines.append(
-            f"  action: {action.get('tool')} {action.get('args')} "
-            f"-> {action.get('expected_effect')}"
+            f"  action: {proposed_action.get('action')} {proposed_action.get('args')} "
+            f"-> {proposed_action.get('expected_effect')}"
         )
-        lines.append(f"  rollback: {action.get('rollback')}")
+        lines.append(f"  rollback: {proposed_action.get('rollback')}")
     return "\n".join(lines)

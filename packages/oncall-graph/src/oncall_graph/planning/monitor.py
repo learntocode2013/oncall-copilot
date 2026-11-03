@@ -20,8 +20,7 @@ import copy
 
 from langgraph.graph import END, START, StateGraph
 
-from ..state import IncidentState
-from .plan import ACTION_TOOLS
+from ..state import IncidentChannel, transcript_lines
 
 MONITOR_ROUTES = ("retry", "replan", "stop", "ready")
 
@@ -32,12 +31,12 @@ def _result(state) -> dict:
     return result if isinstance(result, dict) else {}
 
 
-def top_hypothesis(plan):
-    """The hypothesis the commander is currently standing on. Rank 1 is first."""
-    hypotheses = [item for item in (plan or {}).get("hypotheses") or [] if isinstance(item, dict)]
+def top_hypothesis(state):
+    """The explanation with the highest confidence. That is the one the run stands on."""
+    hypotheses = [item for item in (state.get("hypotheses") or []) if isinstance(item, dict)]
     if not hypotheses:
         return None
-    return min(hypotheses, key=lambda item: item.get("rank", 10**9))
+    return max(hypotheses, key=lambda item: float(item.get("confidence") or 0))
 
 
 def _denies_root_cause(report) -> bool:
@@ -55,9 +54,7 @@ def evidence_contradicts(state) -> bool:
     result = _result(state)
     if result.get("contradicts_hypothesis") or result.get("contradicts"):
         return True
-    top = top_hypothesis(state.get("plan") or {})
-    if top and top.get("contradicted"):
-        return True
+    top = top_hypothesis(state)
     if not top:
         return False
     service = (top.get("service") or "").strip().lower()
@@ -105,27 +102,22 @@ def _verification_failed(state) -> bool:
 
 
 def code_rollback(state) -> dict:
-    """The allow-listed inverse of the proposed action. This does not touch the shop."""
-    action = (state.get("plan") or {}).get("proposed_action") or {}
+    """The shop call for the inverse. The contract rollback string is not executed."""
+    action = state.get("proposed_action") or {}
     if not action:
         return {}
-    rollback = action.get("rollback")
-    if isinstance(rollback, dict) and rollback.get("tool") in ACTION_TOOLS:
-        return {"tool": rollback["tool"], "args": dict(rollback.get("args") or {})}
-    if isinstance(rollback, str) and rollback.strip():
-        return {"procedure": rollback.strip()}
-    tool = action.get("tool")
+    name = action.get("action")
     args = dict(action.get("args") or {})
-    if tool == "set_flag" and isinstance(args.get("enabled"), bool):
+    if name == "set_flag" and isinstance(args.get("enabled"), bool):
         return {"tool": "set_flag", "args": {**args, "enabled": not args["enabled"]}}
-    if tool in ACTION_TOOLS:
+    if name in ("restart", "scale", "rollback"):
         service = str(args.get("service") or "")
         return {"tool": "rollback", "args": {"service": service}}
     return {}
 
 
-def monitor(state: IncidentState) -> dict:
-    """Pick retry, replan, stop, or ready. Append only the new trace lines."""
+def monitor(state: IncidentChannel) -> dict:
+    """Pick retry, replan, stop, or ready. Append only the new transcript lines."""
     retries = int(state.get("retries") or 0)
     revisions = int(state.get("revisions") or 0)
     cap = state.get("max_revisions")
@@ -166,7 +158,7 @@ def monitor(state: IncidentState) -> dict:
         "route": route,
         "why": why,
         "retries": retries + 1 if route == "retry" else (0 if route == "ready" else retries),
-        "trace": lines + [f"monitor -> {route}"],
+        "transcript": transcript_lines("monitor", *lines, f"monitor -> {route}"),
     }
     if route == "stop":
         update["status"] = "ESCALATED"
@@ -175,7 +167,7 @@ def monitor(state: IncidentState) -> dict:
     return update
 
 
-def route_monitor(state: IncidentState) -> str:
+def route_monitor(state: IncidentChannel) -> str:
     """Conditional edge out of ``monitor``. An unknown route stops."""
     route = state.get("route") or "stop"
     if route not in MONITOR_ROUTES:
@@ -183,17 +175,7 @@ def route_monitor(state: IncidentState) -> str:
     return route
 
 
-def _mark_top_contradicted(plan):
-    hypotheses = [dict(item) for item in plan.get("hypotheses") or []]
-    if not hypotheses:
-        plan["hypotheses"] = []
-        return
-    index = min(range(len(hypotheses)), key=lambda i: hypotheses[i].get("rank", 10**9))
-    hypotheses[index]["contradicted"] = True
-    plan["hypotheses"] = hypotheses
-
-
-def apply_retry(state: IncidentState) -> dict:
+def apply_retry(state: IncidentChannel) -> dict:
     """Put the timed-out call back at the front of the queue. The plan is unchanged."""
     plan = copy.deepcopy(state.get("plan") or {})
     step = (state.get("last") or {}).get("step")
@@ -203,45 +185,43 @@ def apply_retry(state: IncidentState) -> dict:
         "plan": plan,
         "stage": plan.get("stage") or state.get("stage") or "test",
         "status": "RETRY",
-        "trace": ["retry"],
+        "transcript": transcript_lines("retry", "retry"),
     }
 
 
-def apply_replan(state: IncidentState) -> dict:
+def apply_replan(state: IncidentChannel) -> dict:
     """Drop the failed action and show the plan back at hypotheses.
 
-    A contradicted top hypothesis stays on the plan, marked, so the next
-    commander pass can see why this revision happened. Counts as one revision.
+    The denial stays on ``diagnosis_reports``. The shared hypothesis is not marked.
+    Counts as one revision.
     """
     plan = copy.deepcopy(state.get("plan") or {})
     plan["stage"] = "hypotheses"
     plan["steps"] = []
-    plan["proposed_action"] = None
-    if "contradict" in (state.get("why") or ""):
-        _mark_top_contradicted(plan)
     return {
         "plan": plan,
         "stage": "hypotheses",
+        "proposed_action": None,
         "revisions": int(state.get("revisions") or 0) + 1,
         "retries": 0,
         "status": "REPLAN",
-        "trace": ["replan"],
+        "transcript": transcript_lines("replan", "replan"),
     }
 
 
-def apply_stop(state: IncidentState) -> dict:
+def apply_stop(state: IncidentChannel) -> dict:
     """Revision cap or tool budget. Escalate; do not spend another call."""
-    return {"status": "ESCALATED", "trace": ["stop"]}
+    return {"status": "ESCALATED", "transcript": transcript_lines("stop", "stop")}
 
 
-def apply_ready(state: IncidentState) -> dict:
+def apply_ready(state: IncidentChannel) -> dict:
     """The monitor found nothing to correct."""
-    return {"status": "READY", "trace": ["ready"]}
+    return {"status": "READY", "transcript": transcript_lines("ready", "ready")}
 
 
 def build_monitor_graph():
     """Monitor plus the four edges. Later nodes replace the stand-in targets."""
-    graph = StateGraph(IncidentState)
+    graph = StateGraph(IncidentChannel)
     graph.add_node("monitor", monitor)
     graph.add_node("retry", apply_retry)
     graph.add_node("replan", apply_replan)
