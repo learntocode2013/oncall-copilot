@@ -79,7 +79,12 @@ def test_metric_names_split_on_underscores():
     assert "transactions" in tokens
 
 def test_tokenizing_is_case_insensitive():
-    assert tokenize("PaymentFailure") == tokenize("paymentfailure")
+    """A leading capital must not change the result. NOT compared against
+    "paymentfailure", which has no camelCase boundary and correctly tokenizes
+    differently."""
+    tokens = tokenize("paymentFailure")
+    assert tokens  # else a stub returning None passes vacuously
+    assert tokenize("PaymentFailure") == tokens
 
 def test_index_text_carries_the_retrieval_metadata():
     doc = next(d for d in ingest_runbooks() if d.document_id == "payment-failure")

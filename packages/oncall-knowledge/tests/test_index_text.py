@@ -44,7 +44,16 @@ def test_metric_names_split_on_underscores():
 
 
 def test_tokenizing_is_case_insensitive():
-    assert tokenize("PaymentFailure") == tokenize("paymentfailure")
+    """A leading capital must not change the result.
+
+    Deliberately NOT `tokenize("PaymentFailure") == tokenize("paymentfailure")`:
+    the first has a camelCase boundary and splits into payment + failure, the
+    second has none and cannot. Those two are correctly unequal.
+    """
+    tokens = tokenize("paymentFailure")
+
+    assert tokens, "a stub returning None would pass an equality-only assertion"
+    assert tokenize("PaymentFailure") == tokens
 
 
 def test_punctuation_is_not_a_token():
