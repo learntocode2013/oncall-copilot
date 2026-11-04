@@ -437,8 +437,18 @@ git commit -am "feat(knowledge): record the lexical retrieval baseline"
   - `SemanticUnavailableError(RuntimeError)`
   - `SemanticIndex.MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"`, `MODEL_REVISION: str`
   - `SemanticIndex.build(documents) -> SemanticIndex`
-  - `SemanticIndex.search(query: str, k: int) -> list[tuple[str, float]]`, same contract as
-    `LexicalIndex.search`
+  - `SemanticIndex.search(query: str, k: int) -> list[tuple[str, float]]` — `[]` for an empty
+    query, otherwise **always its top k**. This is a deliberate asymmetry with
+    `LexicalIndex.search`, which drops zero-score documents: a BM25 zero means "contains none
+    of the query terms", while cosine over L2-normalised vectors has no such value. RRF
+    consumes ranks, not scores, so the two feed it fine.
+  - `SemanticIndex.entries -> tuple[IndexEntry, ...]` — equal to `LexicalIndex.entries` for the
+    same corpus. If the two halves index different text, config B changes two things at once
+    and the before/after number attributes nothing. `IndexEntry` moves to `indexing/text.py` in
+    Task 6, where the hybrid needs it too, and the query-leak guard should then assert on the
+    shared builder rather than on `LexicalIndex` alone.
+  - `SemanticUnavailableError` must **not** subclass `ImportError`. A caller writing
+    `except ImportError` is exactly how an optional dependency turns into a silent fallback.
 
 - [ ] **Step 1: Write the failing tests**
 
