@@ -196,10 +196,43 @@ library flattens to a constant" is an answer only available about code we own.
 `guards` jobs do not install torch on every run. Tests needing it use `pytest.importorskip`
 with a reason, matching the existing pending-guard convention.
 
-### D9 — Fusion: Reciprocal Rank Fusion, k₀ = 60
+### D9 — Fusion: Reciprocal Rank Fusion, k₀ = 60 for the graded run
 
 Scores from BM25 and cosine similarity are on incomparable scales. RRF uses ranks only, which
-is the point. k₀ = 60 is the conventional default and is recorded as a default, not a finding.
+is the point.
+
+**k₀ = 60 was recorded here as "a default, not a finding". Measured 2026-11-04, it is a
+finding.** Over the 71 dev queries, with the corpus, index text and both indexes held fixed:
+
+| Configuration | Recall@5 | Recall@1 | MRR |
+|---|---|---|---|
+| A — lexical only | 0.972 | 0.648 | 0.787 |
+| semantic only *(diagnostic, not a config)* | 0.958 | 0.732 | 0.827 |
+| **B — RRF k₀ = 60** | **0.972** | **0.746** | 0.841 |
+| RRF k₀ = 20 | 0.986 | 0.746 | 0.842 |
+| RRF k₀ = 5 | 0.986 | 0.746 | 0.842 |
+| RRF k₀ = 1 | 1.000 | 0.746 | 0.846 |
+| RRF k₀ = 0 | 1.000 | 0.746 | 0.848 |
+| round-robin merge *(alternative to RRF)* | 1.000 | 0.648 | 0.798 |
+
+**RRF rewards agreement over conviction, and k₀ sets how severely.** At k₀ = 60 the difference
+between rank 1 and rank 20 is only about 25%, so a document both halves returned at rank 9
+outranks one the semantic half placed first. Traced on `'assistant feels sluggish but works'`,
+which shares no vocabulary with its runbook: semantic ranks `ai-slow-response` first, lexical
+does not return it at all, so it earns a single 1/(60+1) = 0.0164 while eight documents found by
+both earn two contributions each, 0.029–0.032. The asymmetric finds are exactly what the
+semantic half was added for, and fusion discards them.
+
+**Config B ships k₀ = 60 anyway**, because choosing k₀ by its dev-set Recall@5 would fit a
+parameter to the very queries the result is reported on — and D4 already records that this set
+is contaminated by authorship. k₀ is tuned on dev and reported on P4's set, which is what the
+dev/held-out split is for. `Retriever.build` therefore takes `k0`, defaulting to 60.
+
+Two things this table settles beyond k₀. Recall@5 at the untuned default is **unchanged** at
+0.972 while Recall@1 gains **9.8 points** — §3.1's saturation argument arriving as data rather
+than as an argument, and the reason D5 reports both. And round-robin merging reaches Recall@5
+1.000 while leaving Recall@1 at the lexical baseline, because alternating always hands position
+one to BM25; it is a worse answer that looks better on the graded metric alone.
 
 ### D10 — In-memory index; no vector database
 
