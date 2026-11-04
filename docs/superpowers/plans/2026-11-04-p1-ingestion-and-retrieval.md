@@ -580,8 +580,20 @@ pre-fusion rankings.
 - Test: `packages/oncall-knowledge/tests/test_experiment_compare.py`
 
 **Interfaces:**
-- Produces: `compare(before: dict, after: dict) -> dict` with `deltas`, `improved` and
-  `regressed` lists of queries. Raises `ValueError` on mismatched `query_set_hash`.
+- Produces: `compare(before: dict, after: dict) -> dict` with `before`, `after`, `deltas`,
+  `improved` and `regressed`. Raises `ValueError` on **three** mismatches, not one:
+  `query_set_hash` (a silently edited ruler), `n_documents` (18 documents versus 26 is a
+  different task, not a different retriever — this is what makes design §10's "postmortems land
+  strictly before A or strictly after B" enforceable), and a differing set of queries in `cases`
+  (same hash but different queries means a record was hand-edited). Each refusal names both
+  values, because an error reading "mismatch" sends the reader to diff two JSON files.
+- `build_record` additionally records **`k0`** — config B's number is meaningless without it
+  (D9): the same two indexes score Recall@5 0.972 at k0=60 and 1.000 at k0=1. Config A records
+  it too, so every record has one shape and `compare` never branches on config id.
+
+Rank comparison has to handle `None`. A miss becoming a hit (`None` → 1) is the largest possible
+improvement and must not be dropped for being unsubtractable; a hit becoming a miss is a
+regression; two misses are not a change.
 
 - [ ] **Step 1: Write the failing tests**
 

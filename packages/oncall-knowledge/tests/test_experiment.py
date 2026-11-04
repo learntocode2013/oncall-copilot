@@ -160,16 +160,14 @@ def test_main_rejects_an_unknown_config(tmp_path: Path):
         main(["--config", "Z", "--cases", "dev", "--out", str(tmp_path)])
 
 
-def test_config_b_fails_loudly_until_the_hybrid_lands(tmp_path: Path):
-    """Config B is BM25 + MiniLM + RRF (design section 6), which Task 6 builds.
-
-    Running semantic-only and labelling it B would put two different meanings
-    behind one config id in artifacts/retrieval/, which is the records version
-    of a changed ruler -- and nothing would raise. A semantic-only run is a
-    diagnostic, not a configuration.
+def test_every_record_says_which_k0_produced_it(lexical_result):
+    """Config B's number is meaningless without k0 (D9): the same two indexes
+    score Recall@5 0.972 at k0=60 and 1.000 at k0=1. Config A records it too, so
+    every record has one shape and `compare` never branches on config id.
     """
-    with pytest.raises(NotImplementedError, match="Task 6"):
-        main(["--config", "B", "--cases", "dev", "--out", str(tmp_path)])
+    record = build_record("A", lexical_result, query_set_name="dev", n_documents=18, k0=60)
+
+    assert record["k0"] == 60
 
 
 def test_a_model_is_recorded_when_one_is_supplied(lexical_result):
