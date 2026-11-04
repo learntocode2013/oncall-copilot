@@ -320,6 +320,42 @@ record now, so it can be wrong: **Recall@5 moves by ~0 on the development set an
 the hard subset.** If B improves the development Recall@5 by a lot, suspect contamination
 before celebrating.
 
+### 6.1 Result, 2026-11-04 — development set, k₀ = 60
+
+Records: `artifacts/retrieval/A-8193aa9e-20261104T144746.json` and
+`B-8193aa9e-20261104T144753.json`, both on query set `8193aa9e` over 18 documents.
+
+| Metric | A | B | Δ |
+|---|---|---|---|
+| Recall@5 | 0.972 | 0.972 | **+0.000** |
+| Recall@1 | 0.648 | 0.746 | **+0.099** |
+| MRR | 0.787 | 0.841 | +0.054 |
+
+17 queries improved, 7 regressed.
+
+**The prediction above was half right, and the wrong half is the interesting one.** Recall@5
+moved by ~0 overall, as expected. It also moved by **exactly 0 on the hard subset**, which the
+prediction said would move visibly:
+
+| Subset | n | Recall@5 | Recall@1 | MRR |
+|---|---|---|---|---|
+| hard (query/document overlap ≤ 0.60) | 21 | 0.905 → 0.905 (+0.000) | 0.429 → 0.524 (+0.095) | 0.635 → 0.690 (+0.055) |
+| easy | 50 | 1.000 → 1.000 (+0.000) | 0.740 → 0.840 (+0.100) | 0.850 → 0.904 (+0.054) |
+
+The Recall@1 gain is **uniform** across hard and easy queries (+0.095 and +0.100), not
+concentrated in the hard ones, so the mechanism is not what the prediction assumed.
+
+**What hybrid retrieval actually did: it reordered what BM25 had already retrieved, and rescued
+nothing BM25 missed entirely.** Reordering lifts Recall@1 and MRR across the board. Rescuing a
+missed document is what would lift Recall@5 on hard queries — and that is precisely what RRF at
+k₀ = 60 refuses to do, because a document only one half returned earns a single 1/(60+1) against
+two contributions for anything both halves found (D9). The two findings are one fact seen from
+two directions.
+
+Reportable as it stands: *hybrid retrieval improved ranking quality by ~10 points of Recall@1
+without improving coverage at all.* Whether coverage can be bought by lowering k₀ is a question
+for P4's set, not this one.
+
 ---
 
 ## 7. Guards this design adds
