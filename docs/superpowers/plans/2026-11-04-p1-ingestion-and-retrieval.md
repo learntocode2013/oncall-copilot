@@ -94,10 +94,29 @@ def test_index_text_never_contains_a_labelled_query():
         for query in doc.metadata.queries:
             assert query not in index_text(doc)
 
-def test_index_text_omits_severity_and_status():
+def test_index_text_is_exactly_the_four_permitted_fields():
+    """Token sets, so the join format stays the implementer's choice.
+
+    NOT `status not in index_text(doc)`: bodies legitimately discuss "verified",
+    "hypothesis" and sev1-sev3 in their Severity and Provenance sections --
+    3, 3 and 19 of them respectively. Measured. The invariant is about what
+    index_text ADDS, not which words the prose happens to use.
+    """
     for doc in ingest_runbooks():
-        assert doc.metadata.status not in index_text(doc).split()
+        permitted = " ".join(p for p in (doc.body, doc.metadata.symptom,
+                                         doc.metadata.service, doc.metadata.fault_id) if p)
+        assert set(tokenize(index_text(doc))) == set(tokenize(permitted))
+
+def test_a_runbook_without_a_fault_id_does_not_index_the_word_none():
+    """checkout-error-rate-elevated is the symptom runbook: fault_id is None.
+    Interpolating it would collide with "none", the no-op action's name.
+    """
+    doc = next(d for d in ingest_runbooks() if d.metadata.fault_id is None)
+    assert "none" not in tokenize(index_text(doc))
 ```
+
+The drafted file is `packages/oncall-knowledge/tests/test_index_text.py` — 9 tests, already
+confirmed failing with `ModuleNotFoundError: No module named 'oncall_knowledge.indexing'`.
 
 - [ ] **Step 2: Run the tests and confirm they fail**
 
