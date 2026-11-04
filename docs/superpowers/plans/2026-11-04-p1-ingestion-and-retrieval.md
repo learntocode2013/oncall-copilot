@@ -290,14 +290,23 @@ git commit -am "feat(knowledge): add the BM25 index and guard it against query s
   - `QueryCase` — frozen dataclass: `query: str`, `gold: frozenset[str]`
   - `dev_cases(documents: Sequence[RunbookDocument]) -> list[QueryCase]` — one case per
     front-matter query, `gold = frozenset({document_id})`
-  - `load_cases(path: Path) -> list[QueryCase]` — P4's YAML: a `queries` list of
-    `{query, gold}` where `gold` is a string or list of `fault_id`s
+  - `load_cases(path: Path, *, known_ids: Collection[str]) -> list[QueryCase]` — P4's YAML: a
+    `queries` list of `{query, gold}` where `gold` is one id or a list. **`known_ids` is
+    required, not optional**: a typo in P4's file would otherwise produce an unscoreable case
+    that looks exactly like a retrieval miss and lowers the score for the wrong reason. P1
+    cannot catch it by reading, because P1 did not author the labels. Raises `ValueError`
+    naming the offending label. Gold labels are `document_id`s — identical to `fault_id` for
+    all 17 cause runbooks, while the symptom runbook has no `fault_id` and can only be named
+    this way.
   - `rank_of_first_gold(ranked_ids: Sequence[str], gold: frozenset[str]) -> int | None` —
     1-based, `None` for a miss
   - `CaseResult` — `query: str`, `gold: frozenset[str]`, `rank: int | None`, `top: tuple[str, ...]`
   - `EvalResult` — `recall_at_1: float`, `recall_at_5: float`, `mrr: float`,
     `cases: tuple[CaseResult, ...]`, `query_set_hash: str`, `n_cases: int`
-  - `evaluate(search: Callable[[str, int], list[tuple[str, float]]], cases, *, k: int = 5, depth: int = 20) -> EvalResult`
+  - `evaluate(search: Callable[[str, int], list[tuple[str, float]]], cases, *, depth: int = 20) -> EvalResult`
+    — **no `k` parameter.** A field named `recall_at_5` that silently reports recall@k is a
+    trap, and Recall@5 is the graded metric, so 5 is fixed. `depth` stays configurable
+    because MRR must not be censored at 5: on a saturated Recall@5, MRR carries the signal.
   - `query_set_hash(cases: Sequence[QueryCase]) -> str` — SHA-256 over the sorted
     `(query, sorted(gold))` pairs
 
