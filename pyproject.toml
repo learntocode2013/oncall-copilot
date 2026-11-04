@@ -13,6 +13,17 @@ dependencies = [
     "oncall-service",
 ]
 
+# `uv sync --extra NAME` resolves extras against THIS project, not against a
+# workspace member -- so oncall-knowledge's own `semantic` extra is unreachable
+# from the repo root without this forwarding entry. It stays out of
+# `dependencies` above so a plain `uv sync` (and CI's `uv sync --frozen`) never
+# installs torch.
+#
+#   uv sync                     lint, test, guards: no torch, ~seconds
+#   uv sync --extra semantic    adds sentence-transformers + torch, ~2 GB
+[project.optional-dependencies]
+semantic = ["oncall-knowledge[semantic]"]
+
 [tool.uv.workspace]
 members = ["packages/*"]
 

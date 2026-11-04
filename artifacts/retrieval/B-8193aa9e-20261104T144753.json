@@ -1,0 +1,1010 @@
+{
+  "config_id": "B",
+  "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+  "model_revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+  "k0": 60,
+  "created_at": "2026-11-04T14:47:53+00:00",
+  "query_set_name": "dev",
+  "query_set_hash": "8193aa9e033928cd2d39f1605ef0d11921458a69ae0c04304e3fd0ef959b48a6",
+  "n_cases": 71,
+  "n_documents": 18,
+  "recall_at_1": 0.7464788732394366,
+  "recall_at_5": 0.971830985915493,
+  "mrr": 0.8408450704225353,
+  "cases": [
+    {
+      "query": "ad service is returning errors",
+      "gold": [
+        "ad-failure"
+      ],
+      "rank": 1,
+      "top": [
+        "ad-failure",
+        "ad-high-cpu",
+        "ad-manual-gc",
+        "payment-failure",
+        "checkout-error-rate-elevated"
+      ]
+    },
+    {
+      "query": "ads fail to load on product pages",
+      "gold": [
+        "ad-failure"
+      ],
+      "rank": 4,
+      "top": [
+        "product-catalog-failure",
+        "ad-high-cpu",
+        "image-slow-load",
+        "ad-failure",
+        "checkout-error-rate-elevated"
+      ]
+    },
+    {
+      "query": "ad service erroring but not slow",
+      "gold": [
+        "ad-failure"
+      ],
+      "rank": 1,
+      "top": [
+        "ad-failure",
+        "ad-high-cpu",
+        "ad-manual-gc",
+        "ai-slow-response",
+        "product-catalog-lock-contention"
+      ]
+    },
+    {
+      "query": "errors from the ad service",
+      "gold": [
+        "ad-failure"
+      ],
+      "rank": 1,
+      "top": [
+        "ad-failure",
+        "ad-high-cpu",
+        "ad-manual-gc",
+        "payment-failure",
+        "image-slow-load"
+      ]
+    },
+    {
+      "query": "ad service is pegging the cpu",
+      "gold": [
+        "ad-high-cpu"
+      ],
+      "rank": 1,
+      "top": [
+        "ad-high-cpu",
+        "ad-manual-gc",
+        "ad-failure",
+        "product-catalog-failure",
+        "product-catalog-lock-contention"
+      ]
+    },
+    {
+      "query": "ads are slow to load",
+      "gold": [
+        "ad-high-cpu"
+      ],
+      "rank": 1,
+      "top": [
+        "ad-high-cpu",
+        "ad-failure",
+        "ad-manual-gc",
+        "ai-slow-response",
+        "image-slow-load"
+      ]
+    },
+    {
+      "query": "ad service unresponsive but running",
+      "gold": [
+        "ad-high-cpu"
+      ],
+      "rank": 2,
+      "top": [
+        "ad-failure",
+        "ad-high-cpu",
+        "ad-manual-gc",
+        "product-catalog-lock-contention",
+        "kafka-queue-problems"
+      ]
+    },
+    {
+      "query": "high cpu on one service",
+      "gold": [
+        "ad-high-cpu"
+      ],
+      "rank": 1,
+      "top": [
+        "ad-high-cpu",
+        "ad-manual-gc",
+        "ad-failure",
+        "product-catalog-failure",
+        "product-catalog-lock-contention"
+      ]
+    },
+    {
+      "query": "ad service stalls every few seconds",
+      "gold": [
+        "ad-manual-gc"
+      ],
+      "rank": 3,
+      "top": [
+        "ad-failure",
+        "ad-high-cpu",
+        "ad-manual-gc",
+        "intl-shipping-slowdown",
+        "product-catalog-lock-contention"
+      ]
+    },
+    {
+      "query": "periodic latency spikes on one service",
+      "gold": [
+        "ad-manual-gc"
+      ],
+      "rank": 1,
+      "top": [
+        "ad-manual-gc",
+        "product-catalog-lock-contention",
+        "ad-high-cpu",
+        "ad-failure",
+        "image-slow-load"
+      ]
+    },
+    {
+      "query": "memory sawtooth on the ad service",
+      "gold": [
+        "ad-manual-gc"
+      ],
+      "rank": 2,
+      "top": [
+        "ad-high-cpu",
+        "ad-manual-gc",
+        "ad-failure",
+        "email-memory-leak",
+        "product-catalog-failure"
+      ]
+    },
+    {
+      "query": "garbage collection pauses causing timeouts",
+      "gold": [
+        "ad-manual-gc"
+      ],
+      "rank": 2,
+      "top": [
+        "product-catalog-failure",
+        "ad-manual-gc",
+        "ad-high-cpu",
+        "load-generator-flood-homepage",
+        "ad-failure"
+      ]
+    },
+    {
+      "query": "the agent keeps calling tools in a loop",
+      "gold": [
+        "ai-runaway-agent"
+      ],
+      "rank": 1,
+      "top": [
+        "ai-runaway-agent",
+        "kafka-queue-problems",
+        "ai-slow-response",
+        "load-generator-flood-homepage",
+        "failed-readiness-probe"
+      ]
+    },
+    {
+      "query": "runaway tool calling, cost is climbing",
+      "gold": [
+        "ai-runaway-agent"
+      ],
+      "rank": 1,
+      "top": [
+        "ai-runaway-agent",
+        "ai-slow-response",
+        "load-generator-flood-homepage",
+        "ad-manual-gc",
+        "checkout-error-rate-elevated"
+      ]
+    },
+    {
+      "query": "agent never finishes a request",
+      "gold": [
+        "ai-runaway-agent"
+      ],
+      "rank": 1,
+      "top": [
+        "ai-runaway-agent",
+        "ai-slow-response",
+        "load-generator-flood-homepage",
+        "intl-shipping-slowdown",
+        "payment-failure"
+      ]
+    },
+    {
+      "query": "recursion limit hit on the agent service",
+      "gold": [
+        "ai-runaway-agent"
+      ],
+      "rank": 1,
+      "top": [
+        "ai-runaway-agent",
+        "ai-slow-response",
+        "email-memory-leak",
+        "kafka-queue-problems",
+        "load-generator-flood-homepage"
+      ]
+    },
+    {
+      "query": "the chatbot is slow to respond",
+      "gold": [
+        "ai-slow-response"
+      ],
+      "rank": 1,
+      "top": [
+        "ai-slow-response",
+        "ai-runaway-agent",
+        "image-slow-load",
+        "intl-shipping-slowdown",
+        "product-catalog-lock-contention"
+      ]
+    },
+    {
+      "query": "agent responses take ten seconds",
+      "gold": [
+        "ai-slow-response"
+      ],
+      "rank": 1,
+      "top": [
+        "ai-slow-response",
+        "intl-shipping-slowdown",
+        "email-memory-leak",
+        "ai-runaway-agent",
+        "image-slow-load"
+      ]
+    },
+    {
+      "query": "llm latency is high",
+      "gold": [
+        "ai-slow-response"
+      ],
+      "rank": 1,
+      "top": [
+        "ai-slow-response",
+        "email-memory-leak",
+        "ad-high-cpu",
+        "image-slow-load",
+        "ad-manual-gc"
+      ]
+    },
+    {
+      "query": "assistant feels sluggish but works",
+      "gold": [
+        "ai-slow-response"
+      ],
+      "rank": 12,
+      "top": [
+        "ad-high-cpu",
+        "product-catalog-failure",
+        "image-slow-load",
+        "ad-failure",
+        "intl-shipping-slowdown"
+      ]
+    },
+    {
+      "query": "customers cannot add items to their basket",
+      "gold": [
+        "cart-failure"
+      ],
+      "rank": 1,
+      "top": [
+        "cart-failure",
+        "product-catalog-failure",
+        "kafka-queue-problems",
+        "checkout-error-rate-elevated",
+        "load-generator-flood-homepage"
+      ]
+    },
+    {
+      "query": "cart errors on a fraction of requests",
+      "gold": [
+        "cart-failure"
+      ],
+      "rank": 1,
+      "top": [
+        "cart-failure",
+        "checkout-error-rate-elevated",
+        "payment-failure",
+        "failed-readiness-probe",
+        "payment-unreachable"
+      ]
+    },
+    {
+      "query": "add to cart failing intermittently",
+      "gold": [
+        "cart-failure"
+      ],
+      "rank": 1,
+      "top": [
+        "cart-failure",
+        "checkout-error-rate-elevated",
+        "ai-runaway-agent",
+        "intl-shipping-slowdown",
+        "failed-readiness-probe"
+      ]
+    },
+    {
+      "query": "POST /api/cart returning errors",
+      "gold": [
+        "cart-failure"
+      ],
+      "rank": 1,
+      "top": [
+        "cart-failure",
+        "payment-failure",
+        "checkout-error-rate-elevated",
+        "failed-readiness-probe",
+        "intl-shipping-slowdown"
+      ]
+    },
+    {
+      "query": "checkout error rate above 5 percent",
+      "gold": [
+        "checkout-error-rate-elevated"
+      ],
+      "rank": 1,
+      "top": [
+        "checkout-error-rate-elevated",
+        "payment-failure",
+        "image-slow-load",
+        "intl-shipping-slowdown",
+        "cart-failure"
+      ]
+    },
+    {
+      "query": "orders are failing at the last step",
+      "gold": [
+        "checkout-error-rate-elevated"
+      ],
+      "rank": 1,
+      "top": [
+        "checkout-error-rate-elevated",
+        "kafka-queue-problems",
+        "intl-shipping-slowdown",
+        "ai-runaway-agent",
+        "payment-failure"
+      ]
+    },
+    {
+      "query": "why is checkout broken",
+      "gold": [
+        "checkout-error-rate-elevated"
+      ],
+      "rank": 1,
+      "top": [
+        "checkout-error-rate-elevated",
+        "payment-failure",
+        "intl-shipping-slowdown",
+        "payment-unreachable",
+        "cart-failure"
+      ]
+    },
+    {
+      "query": "error rate alert fired on checkout, where do I start",
+      "gold": [
+        "checkout-error-rate-elevated"
+      ],
+      "rank": 1,
+      "top": [
+        "checkout-error-rate-elevated",
+        "payment-failure",
+        "cart-failure",
+        "failed-readiness-probe",
+        "intl-shipping-slowdown"
+      ]
+    },
+    {
+      "query": "email service memory keeps growing",
+      "gold": [
+        "email-memory-leak"
+      ],
+      "rank": 1,
+      "top": [
+        "email-memory-leak",
+        "ad-high-cpu",
+        "product-catalog-failure",
+        "ad-manual-gc",
+        "product-catalog-lock-contention"
+      ]
+    },
+    {
+      "query": "order confirmation emails are not being sent",
+      "gold": [
+        "email-memory-leak"
+      ],
+      "rank": 6,
+      "top": [
+        "kafka-queue-problems",
+        "intl-shipping-slowdown",
+        "checkout-error-rate-elevated",
+        "payment-unreachable",
+        "payment-failure"
+      ]
+    },
+    {
+      "query": "email service restarting repeatedly",
+      "gold": [
+        "email-memory-leak"
+      ],
+      "rank": 1,
+      "top": [
+        "email-memory-leak",
+        "load-generator-flood-homepage",
+        "product-catalog-failure",
+        "failed-readiness-probe",
+        "ai-runaway-agent"
+      ]
+    },
+    {
+      "query": "memory leak on one service",
+      "gold": [
+        "email-memory-leak"
+      ],
+      "rank": 1,
+      "top": [
+        "email-memory-leak",
+        "product-catalog-failure",
+        "ad-manual-gc",
+        "product-catalog-lock-contention",
+        "ad-high-cpu"
+      ]
+    },
+    {
+      "query": "cart is unhealthy but the shop still works",
+      "gold": [
+        "failed-readiness-probe"
+      ],
+      "rank": 1,
+      "top": [
+        "failed-readiness-probe",
+        "cart-failure",
+        "product-catalog-failure",
+        "checkout-error-rate-elevated",
+        "recommendation-cache-failure"
+      ]
+    },
+    {
+      "query": "service reported unhealthy, should I restart it",
+      "gold": [
+        "failed-readiness-probe"
+      ],
+      "rank": 1,
+      "top": [
+        "failed-readiness-probe",
+        "recommendation-cache-failure",
+        "ad-failure",
+        "kafka-queue-problems",
+        "product-catalog-failure"
+      ]
+    },
+    {
+      "query": "health check failing but requests are succeeding",
+      "gold": [
+        "failed-readiness-probe"
+      ],
+      "rank": 2,
+      "top": [
+        "ad-failure",
+        "failed-readiness-probe",
+        "recommendation-cache-failure",
+        "load-generator-flood-homepage",
+        "product-catalog-failure"
+      ]
+    },
+    {
+      "query": "readiness probe failing on cart",
+      "gold": [
+        "failed-readiness-probe"
+      ],
+      "rank": 1,
+      "top": [
+        "failed-readiness-probe",
+        "cart-failure",
+        "checkout-error-rate-elevated",
+        "intl-shipping-slowdown",
+        "recommendation-cache-failure"
+      ]
+    },
+    {
+      "query": "product images take forever to load",
+      "gold": [
+        "image-slow-load"
+      ],
+      "rank": 1,
+      "top": [
+        "image-slow-load",
+        "product-catalog-failure",
+        "ai-slow-response",
+        "product-catalog-lock-contention",
+        "email-memory-leak"
+      ]
+    },
+    {
+      "query": "the site feels slow but nothing is erroring",
+      "gold": [
+        "image-slow-load"
+      ],
+      "rank": 1,
+      "top": [
+        "image-slow-load",
+        "intl-shipping-slowdown",
+        "ad-failure",
+        "product-catalog-lock-contention",
+        "ai-slow-response"
+      ]
+    },
+    {
+      "query": "image provider is slow",
+      "gold": [
+        "image-slow-load"
+      ],
+      "rank": 1,
+      "top": [
+        "image-slow-load",
+        "ai-slow-response",
+        "product-catalog-lock-contention",
+        "ad-high-cpu",
+        "intl-shipping-slowdown"
+      ]
+    },
+    {
+      "query": "pages render late with no errors",
+      "gold": [
+        "image-slow-load"
+      ],
+      "rank": 1,
+      "top": [
+        "image-slow-load",
+        "product-catalog-failure",
+        "intl-shipping-slowdown",
+        "product-catalog-lock-contention",
+        "payment-failure"
+      ]
+    },
+    {
+      "query": "checkout is slow but eventually works",
+      "gold": [
+        "intl-shipping-slowdown"
+      ],
+      "rank": 1,
+      "top": [
+        "intl-shipping-slowdown",
+        "image-slow-load",
+        "checkout-error-rate-elevated",
+        "product-catalog-lock-contention",
+        "ai-slow-response"
+      ]
+    },
+    {
+      "query": "shipping quotes take ten seconds",
+      "gold": [
+        "intl-shipping-slowdown"
+      ],
+      "rank": 1,
+      "top": [
+        "intl-shipping-slowdown",
+        "ai-slow-response",
+        "payment-failure",
+        "payment-unreachable",
+        "email-memory-leak"
+      ]
+    },
+    {
+      "query": "international orders are slow",
+      "gold": [
+        "intl-shipping-slowdown"
+      ],
+      "rank": 1,
+      "top": [
+        "intl-shipping-slowdown",
+        "ai-slow-response",
+        "kafka-queue-problems",
+        "image-slow-load",
+        "checkout-error-rate-elevated"
+      ]
+    },
+    {
+      "query": "checkout latency spiked with no errors",
+      "gold": [
+        "intl-shipping-slowdown"
+      ],
+      "rank": 1,
+      "top": [
+        "intl-shipping-slowdown",
+        "product-catalog-lock-contention",
+        "checkout-error-rate-elevated",
+        "payment-failure",
+        "image-slow-load"
+      ]
+    },
+    {
+      "query": "orders are completing but accounting is behind",
+      "gold": [
+        "kafka-queue-problems"
+      ],
+      "rank": 1,
+      "top": [
+        "kafka-queue-problems",
+        "checkout-error-rate-elevated",
+        "intl-shipping-slowdown",
+        "product-catalog-lock-contention",
+        "payment-failure"
+      ]
+    },
+    {
+      "query": "kafka queue is backing up",
+      "gold": [
+        "kafka-queue-problems"
+      ],
+      "rank": 1,
+      "top": [
+        "kafka-queue-problems",
+        "checkout-error-rate-elevated",
+        "product-catalog-lock-contention",
+        "load-generator-flood-homepage",
+        "intl-shipping-slowdown"
+      ]
+    },
+    {
+      "query": "consumer lag is growing",
+      "gold": [
+        "kafka-queue-problems"
+      ],
+      "rank": 5,
+      "top": [
+        "intl-shipping-slowdown",
+        "product-catalog-lock-contention",
+        "ad-high-cpu",
+        "ai-slow-response",
+        "kafka-queue-problems"
+      ]
+    },
+    {
+      "query": "fraud detection is not processing orders",
+      "gold": [
+        "kafka-queue-problems"
+      ],
+      "rank": 1,
+      "top": [
+        "kafka-queue-problems",
+        "checkout-error-rate-elevated",
+        "payment-failure",
+        "ad-high-cpu",
+        "payment-unreachable"
+      ]
+    },
+    {
+      "query": "error count went up but the site seems fine",
+      "gold": [
+        "load-generator-flood-homepage"
+      ],
+      "rank": 3,
+      "top": [
+        "payment-failure",
+        "checkout-error-rate-elevated",
+        "load-generator-flood-homepage",
+        "ai-runaway-agent",
+        "ad-failure"
+      ]
+    },
+    {
+      "query": "traffic spike on the homepage",
+      "gold": [
+        "load-generator-flood-homepage"
+      ],
+      "rank": 1,
+      "top": [
+        "load-generator-flood-homepage",
+        "checkout-error-rate-elevated",
+        "ad-high-cpu",
+        "payment-failure",
+        "recommendation-cache-failure"
+      ]
+    },
+    {
+      "query": "alert fired but I cannot find anything broken",
+      "gold": [
+        "load-generator-flood-homepage"
+      ],
+      "rank": 3,
+      "top": [
+        "checkout-error-rate-elevated",
+        "failed-readiness-probe",
+        "load-generator-flood-homepage",
+        "product-catalog-failure",
+        "payment-failure"
+      ]
+    },
+    {
+      "query": "requests per second doubled",
+      "gold": [
+        "load-generator-flood-homepage"
+      ],
+      "rank": 2,
+      "top": [
+        "product-catalog-lock-contention",
+        "load-generator-flood-homepage",
+        "ai-slow-response",
+        "intl-shipping-slowdown",
+        "ai-runaway-agent"
+      ]
+    },
+    {
+      "query": "checkout is returning 422 and orders are not completing",
+      "gold": [
+        "payment-failure"
+      ],
+      "rank": 3,
+      "top": [
+        "payment-unreachable",
+        "checkout-error-rate-elevated",
+        "payment-failure",
+        "intl-shipping-slowdown",
+        "kafka-queue-problems"
+      ]
+    },
+    {
+      "query": "payment transactions dropped to zero",
+      "gold": [
+        "payment-failure"
+      ],
+      "rank": 1,
+      "top": [
+        "payment-failure",
+        "payment-unreachable",
+        "checkout-error-rate-elevated",
+        "cart-failure",
+        "intl-shipping-slowdown"
+      ]
+    },
+    {
+      "query": "customers cannot complete checkout, payment service erroring",
+      "gold": [
+        "payment-failure"
+      ],
+      "rank": 3,
+      "top": [
+        "checkout-error-rate-elevated",
+        "payment-unreachable",
+        "payment-failure",
+        "cart-failure",
+        "intl-shipping-slowdown"
+      ]
+    },
+    {
+      "query": "payment is down and checkout is failing",
+      "gold": [
+        "payment-unreachable"
+      ],
+      "rank": 2,
+      "top": [
+        "intl-shipping-slowdown",
+        "payment-unreachable",
+        "checkout-error-rate-elevated",
+        "payment-failure",
+        "cart-failure"
+      ]
+    },
+    {
+      "query": "checkout cannot reach payment",
+      "gold": [
+        "payment-unreachable"
+      ],
+      "rank": 1,
+      "top": [
+        "payment-unreachable",
+        "checkout-error-rate-elevated",
+        "payment-failure",
+        "cart-failure",
+        "intl-shipping-slowdown"
+      ]
+    },
+    {
+      "query": "no payment spans in traces at all",
+      "gold": [
+        "payment-unreachable"
+      ],
+      "rank": 1,
+      "top": [
+        "payment-unreachable",
+        "checkout-error-rate-elevated",
+        "payment-failure",
+        "intl-shipping-slowdown",
+        "product-catalog-lock-contention"
+      ]
+    },
+    {
+      "query": "connection refused calling payment from checkout",
+      "gold": [
+        "payment-unreachable"
+      ],
+      "rank": 1,
+      "top": [
+        "payment-unreachable",
+        "checkout-error-rate-elevated",
+        "payment-failure",
+        "intl-shipping-slowdown",
+        "failed-readiness-probe"
+      ]
+    },
+    {
+      "query": "product pages are not loading",
+      "gold": [
+        "product-catalog-failure"
+      ],
+      "rank": 2,
+      "top": [
+        "image-slow-load",
+        "product-catalog-failure",
+        "product-catalog-lock-contention",
+        "ai-slow-response",
+        "recommendation-cache-failure"
+      ]
+    },
+    {
+      "query": "product catalog returning errors on some items",
+      "gold": [
+        "product-catalog-failure"
+      ],
+      "rank": 1,
+      "top": [
+        "product-catalog-failure",
+        "product-catalog-lock-contention",
+        "checkout-error-rate-elevated",
+        "image-slow-load",
+        "cart-failure"
+      ]
+    },
+    {
+      "query": "specific product detail page is broken",
+      "gold": [
+        "product-catalog-failure"
+      ],
+      "rank": 1,
+      "top": [
+        "product-catalog-failure",
+        "product-catalog-lock-contention",
+        "image-slow-load",
+        "checkout-error-rate-elevated",
+        "recommendation-cache-failure"
+      ]
+    },
+    {
+      "query": "catalog service erroring",
+      "gold": [
+        "product-catalog-failure"
+      ],
+      "rank": 1,
+      "top": [
+        "product-catalog-failure",
+        "product-catalog-lock-contention",
+        "image-slow-load",
+        "checkout-error-rate-elevated",
+        "recommendation-cache-failure"
+      ]
+    },
+    {
+      "query": "product pages are slow but still loading",
+      "gold": [
+        "product-catalog-lock-contention"
+      ],
+      "rank": 3,
+      "top": [
+        "image-slow-load",
+        "product-catalog-failure",
+        "product-catalog-lock-contention",
+        "ad-high-cpu",
+        "ai-slow-response"
+      ]
+    },
+    {
+      "query": "catalog latency spiked",
+      "gold": [
+        "product-catalog-lock-contention"
+      ],
+      "rank": 1,
+      "top": [
+        "product-catalog-lock-contention",
+        "product-catalog-failure",
+        "image-slow-load",
+        "ai-slow-response",
+        "intl-shipping-slowdown"
+      ]
+    },
+    {
+      "query": "database lock contention on the catalog",
+      "gold": [
+        "product-catalog-lock-contention"
+      ],
+      "rank": 1,
+      "top": [
+        "product-catalog-lock-contention",
+        "product-catalog-failure",
+        "image-slow-load",
+        "ai-slow-response",
+        "recommendation-cache-failure"
+      ]
+    },
+    {
+      "query": "everything is slow when browsing products",
+      "gold": [
+        "product-catalog-lock-contention"
+      ],
+      "rank": 2,
+      "top": [
+        "product-catalog-failure",
+        "product-catalog-lock-contention",
+        "ai-slow-response",
+        "intl-shipping-slowdown",
+        "image-slow-load"
+      ]
+    },
+    {
+      "query": "recommendations are slow or missing",
+      "gold": [
+        "recommendation-cache-failure"
+      ],
+      "rank": 1,
+      "top": [
+        "recommendation-cache-failure",
+        "intl-shipping-slowdown",
+        "product-catalog-lock-contention",
+        "ai-slow-response",
+        "image-slow-load"
+      ]
+    },
+    {
+      "query": "recommendation cache is not working",
+      "gold": [
+        "recommendation-cache-failure"
+      ],
+      "rank": 1,
+      "top": [
+        "recommendation-cache-failure",
+        "product-catalog-failure",
+        "image-slow-load",
+        "ad-high-cpu",
+        "product-catalog-lock-contention"
+      ]
+    },
+    {
+      "query": "recommendation service degraded",
+      "gold": [
+        "recommendation-cache-failure"
+      ],
+      "rank": 1,
+      "top": [
+        "recommendation-cache-failure",
+        "product-catalog-failure",
+        "product-catalog-lock-contention",
+        "ad-high-cpu",
+        "ai-slow-response"
+      ]
+    },
+    {
+      "query": "product recommendations stopped appearing",
+      "gold": [
+        "recommendation-cache-failure"
+      ],
+      "rank": 1,
+      "top": [
+        "recommendation-cache-failure",
+        "product-catalog-failure",
+        "product-catalog-lock-contention",
+        "ai-slow-response",
+        "image-slow-load"
+      ]
+    }
+  ]
+}

@@ -31,6 +31,102 @@ lab               ◀──  nothing       (pages the service over HTTP; holds t
 `oncall-contracts` exists to break a cycle. If `IncidentState` lived in `oncall-graph`, then P4
 and P5 would both have to import P2's package, and the eval/tuning separation would collapse.
 
+### ⚠ Open: these rules currently contradict the architecture for retrieval
+
+**Decision needed from P2 and P3 jointly, before anyone writes `runbooks_kb`.**
+
+The architecture says P2 reaches retrieval through MCP: `oncall-graph` calls `load_tools()`,
+which talks to `mcp-runbooks` (`oncall_tools.servers.runbooks_kb`, port 8102 — *"Search runbooks
+and past postmortems. Read-only."*). P2 never sees `Retriever`.
+
+`ALLOWED_IMPORTS` in `tests/test_guards.py` says the opposite, in both directions:
+
+```python
+"oncall_tools": {"oncall_contracts"},                                      # cannot import knowledge
+"oncall_graph": {"oncall_contracts", "oncall_knowledge", "oncall_tools"},  # can
+```
+
+So the package that needs retrieval is forbidden it, and the package that should only ever see
+MCP tools is free to bypass them. `runbooks_kb` will fail the dependency guard on its first real
+line, and nothing currently stops P2 importing `oncall_knowledge.retrieval` directly instead.
+
+Proposed resolution — two changes that make the guard enforce the architecture instead of
+contradicting it:
+
+1. **`oncall_tools` gains `oncall_knowledge`.** The MCP server becomes a thin wrapper over
+   `Retriever`, which is what "retrieval.py is the only public surface" was for.
+2. **`oncall_graph` loses `oncall_knowledge`.** Worth doing on its own merits: without it,
+   nothing prevents one E1 topology retrieving through MCP while another imports directly — and
+   the comparison between them would then differ in retrieval as well as in orchestration, which
+   is exactly what E1 exists to isolate.
+
+Neither change is P1's to make alone. Until it is settled, `oncall-knowledge` exposes
+`Retriever.build(documents, *, semantic, k0)` and `Retriever.retrieve(query, k) ->
+list[RetrievalResult]`, and does not care who calls it.
+
+### The `mcp-runbooks` tool contract
+
+**P1 proposes this; P3 owns the server.** Same split as the P2/P3 seam below: the schema is the
+dependency, the implementation is the owner's. P1 will not write
+`oncall_tools/servers/runbooks_kb/` — it is P3's graded component, and the guard change it needs
+should not be landed by the package that wants it.
+
+Two tools, both `read`:
+
+```python
+search_runbooks(query: str, k: int = 5) -> list[RunbookHit]
+get_runbook(document_id: str) -> Runbook
+```
+
+```python
+RunbookHit = {
+    "document_id": str,  # "payment-failure"
+    "status": str,  # verified | structural | hypothesis
+    "service": str,
+    "severity": str,
+    "excerpt": str,  # first ~60 words of the body
+    "score": float,  # fused; comparable only WITHIN one response
+    "lexical_rank": int | None,
+    "semantic_rank": int | None,
+}
+Runbook = RunbookHit | {"body": str, "fix": dict | None, "preconditions": list[str]}
+```
+
+Six things this contract pins, each for a reason:
+
+**Two tools, not one.** Median runbook body is ~440 tokens, so returning five full bodies costs
+~2,200 tokens per search. Search returns excerpts; the agent fetches the one it wants. If P3
+measures that the round trip hurts more than the tokens, collapsing to one tool is theirs to
+decide — but the default should be the cheap one.
+
+**`status` is returned and never filtered on** (design D13). 14 of 18 runbooks are `structural`
+— behaviour never actually observed — and 2 are `hypothesis`. The agent must be able to say "the
+only runbook I found is unverified"; it cannot if retrieval silently dropped them. Equally, a
+`sev1` runbook must not rank higher for containing the word "sev1", which is why `severity` is
+returned but is not index text.
+
+**Both pre-fusion ranks travel with the hit.** `lexical_rank=None, semantic_rank=1` means only
+the embedding found this; that is the difference between a confident single-source hit and
+agreement between two retrievers, and it is the only way to debug a bad answer after the fact.
+
+**`score` is comparable within one response and nowhere else.** It is an RRF sum over
+`1/(k0+rank)`; it has no absolute meaning, no stable scale across queries, and must never be
+thresholded. Document that in the tool description so the model is not invited to.
+
+**No `service` or `status` filter arguments.** Both are tempting and both would let the agent
+narrow to what it already believes, which is the failure mode the whole corpus exists to break:
+it is how a wrong hypothesis gets confirmed. Filtering is a ranking decision and belongs to the
+commander's reasoning, over results it can see.
+
+**The server builds its own `Retriever` and holds the documents**, which is how it answers
+`service`, `severity` and `body` — `RetrievalResult` carries only `document_id`, `status`,
+`score` and the two ranks. No change to `oncall-knowledge` is needed. Build it once at startup:
+`Retriever.build(ingest_runbooks(), semantic=True)` loads an 80 MB model and takes ~10 seconds,
+so per-request construction would be visible in every trace.
+
+Ingestion is root-pinned to `data/runbooks/`, so the server cannot reach `eval/` even if asked.
+That is enforced in `ingest_runbooks`, not here.
+
 ## Public surfaces
 
 Keep these small. Everything else in a package is internal and may change freely.
@@ -39,7 +135,7 @@ Keep these small. Everything else in a package is internal and may change freely
 |---|---|
 | `oncall-graph` | `build_graph(tools, store, *, topology) -> CompiledStateGraph` — nothing else |
 | `oncall-tools` | `load_tools(transport) -> ToolRegistry`; the hook callables |
-| `oncall-knowledge` | retriever + memory-store interfaces |
+| `oncall-knowledge` | `Retriever.build(documents, *, semantic, k0)` / `.retrieve(query, k)` / `.search(query, k)`; memory-store interfaces to come. Everything under `indexing/` is internal |
 | `oncall-service` | the HTTP API (not a Python API) |
 | `oncall-eval` | a CLI; imported by nobody |
 | `oncall-lab` | the HTTP lab on port 8020; imported by nobody |
