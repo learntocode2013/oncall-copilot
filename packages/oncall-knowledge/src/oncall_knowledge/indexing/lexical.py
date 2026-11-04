@@ -24,25 +24,12 @@ from __future__ import annotations
 import math
 from collections import Counter
 from collections.abc import Sequence
-from dataclasses import dataclass
 
-from oncall_knowledge.indexing.text import index_text, tokenize
+from oncall_knowledge.indexing.text import IndexEntry, build_entries, tokenize
 from oncall_knowledge.schema import RunbookDocument
 
 K1 = 1.5
 B = 0.75
-
-
-@dataclass(frozen=True, slots=True)
-class IndexEntry:
-    """One indexed runbook. `status` is carried for the consumer to judge (D13)
-    and is never part of `text`; `source_path` is what the data-tree guard
-    asserts on."""
-
-    document_id: str
-    text: str
-    status: str
-    source_path: str
 
 
 class LexicalIndex:
@@ -64,17 +51,7 @@ class LexicalIndex:
 
     @classmethod
     def build(cls, documents: Sequence[RunbookDocument]) -> LexicalIndex:
-        return cls(
-            [
-                IndexEntry(
-                    document_id=document.document_id,
-                    text=index_text(document),
-                    status=document.metadata.status,
-                    source_path=document.source_path,
-                )
-                for document in documents
-            ]
-        )
+        return cls(build_entries(documents))
 
     @property
     def entries(self) -> tuple[IndexEntry, ...]:

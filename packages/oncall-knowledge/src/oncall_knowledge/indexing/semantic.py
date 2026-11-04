@@ -16,8 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from oncall_knowledge.indexing.lexical import IndexEntry
-from oncall_knowledge.indexing.text import index_text, tokenize
+from oncall_knowledge.indexing.text import IndexEntry, build_entries, tokenize
 from oncall_knowledge.schema import RunbookDocument
 
 
@@ -74,15 +73,7 @@ class SemanticIndex:
     @classmethod
     def build(cls, documents: Sequence[RunbookDocument]) -> SemanticIndex:
         model = cls._load_model()
-        entries = [
-            IndexEntry(
-                document_id=document.document_id,
-                text=index_text(document),
-                status=document.metadata.status,
-                source_path=document.source_path,
-            )
-            for document in documents
-        ]
+        entries = build_entries(documents)
         vectors = model.encode([entry.text for entry in entries], normalize_embeddings=True)
         return cls(entries, vectors, model)
 

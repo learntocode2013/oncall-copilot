@@ -6,6 +6,8 @@ why index_text lives here rather than inside either index.
 """
 
 import re
+from collections.abc import Sequence
+from dataclasses import dataclass
 
 from oncall_knowledge.schema import RunbookDocument
 
@@ -56,4 +58,43 @@ def index_text(document: RunbookDocument) -> str:
         part
         for part in (document.body, metadata.symptom, metadata.service, metadata.fault_id)
         if part
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class IndexEntry:
+    """One indexed runbook, as both halves see it.
+
+    `status` is carried for the consumer to judge (D13) and is never part of
+    `text`; `source_path` is what the data-tree guard asserts on.
+    """
+
+    document_id: str
+    text: str
+    status: str
+    source_path: str
+
+
+def build_entries(documents: Sequence[RunbookDocument]) -> tuple[IndexEntry, ...]:
+    """The single assembly point for what gets indexed.
+
+    Both LexicalIndex and SemanticIndex build from this rather than each
+    assembling their own entries. Two reasons, and the second is the stronger:
+
+    If the two halves ever index different text, config B changes two variables
+    at once and its before/after number attributes nothing.
+
+    And the query-leak guard can assert on THIS, which needs no model and so
+    runs in CI. While each half assembled its own entries, the only thing
+    checking the semantic side for a leak was an equality test that
+    `importorskip`s -- so it skipped in CI, exactly where the guard matters.
+    """
+    return tuple(
+        IndexEntry(
+            document_id=document.document_id,
+            text=index_text(document),
+            status=document.metadata.status,
+            source_path=document.source_path,
+        )
+        for document in documents
     )
