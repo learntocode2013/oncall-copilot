@@ -75,6 +75,7 @@ class Agent:
         self.tool_calls = 0
         self._stop = None
         self._pending_row = None
+        self.last_messages = []
         if model is not None and hasattr(model, "invoke"):
             self.model_id = (
                 getattr(model, "model_id", None) or getattr(model, "model_name", None) or ""
@@ -158,10 +159,15 @@ class Agent:
         return {"messages": results}
 
     def ask(self, text, max_steps=24):
-        """Run the loop on one brief and return the final reply text."""
+        """Run the loop on one brief and return the final reply text.
+
+        ``last_messages`` keeps that run, including tool results. Callers that
+        need a typed hand-off read those results. The return value stays the text.
+        """
         self.tool_calls = 0
         self._stop = None
         self._pending_row = None
+        self.last_messages = []
         try:
             out = self.graph.invoke(
                 {"messages": [HumanMessage(content=text)]},
@@ -169,6 +175,7 @@ class Agent:
             )
         except GraphRecursionError:
             return f"STOPPED: {self.name} hit its step limit without finishing."
+        self.last_messages = list(out["messages"])
         if self._stop:
             return self._stop
         content = out["messages"][-1].content

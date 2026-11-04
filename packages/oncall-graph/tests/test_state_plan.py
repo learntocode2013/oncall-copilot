@@ -338,6 +338,8 @@ def test_graph_channel_uses_the_contract_fields_and_keeps_its_own_name():
         "max_revisions",
         "tool_budget",
         "diagnosis_reports",
+        "diagnosis_calls_accounted",
+        "reinvestigate",
         "pending_rollback",
         "status",
         "meter_rows",

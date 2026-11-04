@@ -356,3 +356,5 @@ def test_build_graph_compiles_the_solo_baseline():
         assert name in drawing
     with pytest.raises(NotImplementedError, match="scripted shop"):
         build_graph({"promql": object()}, topology="c1_single")
+    with pytest.raises(NotImplementedError, match="scripted shop"):
+        build_graph({"promql": object()}, topology="c2_team")

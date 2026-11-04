@@ -63,6 +63,12 @@ class IncidentChannel(TypedDict):
     max_revisions: int
     tool_budget: int
     diagnosis_reports: Annotated[list[DiagnosisReport], operator.add]
+    # How many diagnosis tool calls are already included in ``tool_calls``.
+    # Parallel copies cannot each write ``tool_calls``; the tally adds the delta.
+    diagnosis_calls_accounted: int
+    # Set after a failed verification so the next monitor pass does not roll
+    # back again, and so the commander does not repeat the same runbook.
+    reinvestigate: bool
     pending_rollback: dict
 
     # The service reads these. They are not on the shared incident.
@@ -122,6 +128,8 @@ def new_incident(
         "max_revisions": max_revisions,
         "tool_budget": tool_budget,
         "diagnosis_reports": [],
+        "diagnosis_calls_accounted": 0,
+        "reinvestigate": False,
         "pending_rollback": {},
         "status": "RUNNING",
         "meter_rows": [],
