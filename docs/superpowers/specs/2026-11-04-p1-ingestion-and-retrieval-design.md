@@ -149,12 +149,45 @@ reader can see which queries moved.
 Nothing in the corpus exceeds the budget (§2). A `chunking.py` would be written, tested and
 defended without changing a single retrieval result. Revisit when D1's thresholds are crossed.
 
-### D7 — Lexical: BM25 via `rank-bm25`; our own tokenizer
+### D7 — Lexical: BM25 is ours, scoring function included
 
-*My call, reversible.* Scoring is standard and not where this project's risk lives. The
-tokenizer **is** ours, because it carries one requirement: `paymentFailure` must also index as
-`payment` + `failure`, or exact-identifier queries and prose queries cannot both work. The
-stdlib BM25 from the spike is the fallback if the dependency proves awkward.
+**Revised 2026-11-04, reversing this decision's first form.** D7 originally chose `rank-bm25`,
+on the grounds that "scoring is standard and not where this project's risk lives". That was
+measured during Task 2 and found false. Over the 71 labelled queries, with the index text and
+tokenizer held identical:
+
+| Scorer | Recall@5 | Recall@1 | MRR | Zero-score filter prunes |
+|---|---|---|---|---|
+| `rank_bm25.BM25Okapi` (its default) | 0.958 | 0.606 | 0.748 | 12 of 18 |
+| `rank_bm25.BM25Okapi(epsilon=0.0)` | 0.901 | 0.577 | 0.720 | 12 of 18 |
+| `rank_bm25.BM25L` | 0.958 | 0.577 | 0.748 | 12 of 18 |
+| `rank_bm25.BM25Plus` | 0.972 | 0.648 | 0.788 | **0 of 18** |
+| **ours, ~25 lines** | **0.972** | **0.648** | **0.787** | 12 of 18 |
+
+The variant choice moves Recall@1 by **7 points**, which is more than the entire hybrid
+experiment is expected to move Recall@5. Scoring is exactly where the risk lives on a corpus
+this small, and the reason is specific to the corpus size:
+
+**Okapi IDF goes negative on a small corpus.** 93 of the 1,174 vocabulary terms appear in 10 or
+more of the 18 documents, which gives them a negative raw Okapi IDF. `rank-bm25` floors every
+one of those to the same positive constant, `epsilon * average_idf`, so each common word
+contributes identical weight. That flattening costs 4 points of Recall@1.
+
+**`BM25Plus` recovers the number but breaks the zero-score contract.** Its `delta` term is added
+outside the term-frequency factor, so it applies at frequency zero: all 18 documents score
+nonzero for `"payment"` when only 6 contain it. That makes the zero-score filter a no-op and
+hands RRF an ordering of 12 documents that do not contain the query term, as though it were
+evidence. Breaking a measurement guarantee to recover a metric is the wrong trade.
+
+Ours keeps IDF positive and monotonic — `log(1 + (N - df + 0.5) / (df + 0.5))`, k1 = 1.5,
+b = 0.75 — so **a zero score still means "no match"**, which is what D7's consumers rely on.
+
+The tokenizer was always ours, because it carries one requirement: `paymentFailure` must also
+index as `payment` + `failure`, or exact-identifier queries and prose queries cannot both work.
+
+There is a second reason to own this, beyond the numbers: on an 18-document corpus the viva
+question is *why does retrieval behave this way*, and "93 terms earn a negative IDF that the
+library flattens to a constant" is an answer only available about code we own.
 
 ### D8 — Semantic: `sentence-transformers` behind an optional extra
 
@@ -163,10 +196,43 @@ stdlib BM25 from the spike is the fallback if the dependency proves awkward.
 `guards` jobs do not install torch on every run. Tests needing it use `pytest.importorskip`
 with a reason, matching the existing pending-guard convention.
 
-### D9 — Fusion: Reciprocal Rank Fusion, k₀ = 60
+### D9 — Fusion: Reciprocal Rank Fusion, k₀ = 60 for the graded run
 
 Scores from BM25 and cosine similarity are on incomparable scales. RRF uses ranks only, which
-is the point. k₀ = 60 is the conventional default and is recorded as a default, not a finding.
+is the point.
+
+**k₀ = 60 was recorded here as "a default, not a finding". Measured 2026-11-04, it is a
+finding.** Over the 71 dev queries, with the corpus, index text and both indexes held fixed:
+
+| Configuration | Recall@5 | Recall@1 | MRR |
+|---|---|---|---|
+| A — lexical only | 0.972 | 0.648 | 0.787 |
+| semantic only *(diagnostic, not a config)* | 0.958 | 0.732 | 0.827 |
+| **B — RRF k₀ = 60** | **0.972** | **0.746** | 0.841 |
+| RRF k₀ = 20 | 0.986 | 0.746 | 0.842 |
+| RRF k₀ = 5 | 0.986 | 0.746 | 0.842 |
+| RRF k₀ = 1 | 1.000 | 0.746 | 0.846 |
+| RRF k₀ = 0 | 1.000 | 0.746 | 0.848 |
+| round-robin merge *(alternative to RRF)* | 1.000 | 0.648 | 0.798 |
+
+**RRF rewards agreement over conviction, and k₀ sets how severely.** At k₀ = 60 the difference
+between rank 1 and rank 20 is only about 25%, so a document both halves returned at rank 9
+outranks one the semantic half placed first. Traced on `'assistant feels sluggish but works'`,
+which shares no vocabulary with its runbook: semantic ranks `ai-slow-response` first, lexical
+does not return it at all, so it earns a single 1/(60+1) = 0.0164 while eight documents found by
+both earn two contributions each, 0.029–0.032. The asymmetric finds are exactly what the
+semantic half was added for, and fusion discards them.
+
+**Config B ships k₀ = 60 anyway**, because choosing k₀ by its dev-set Recall@5 would fit a
+parameter to the very queries the result is reported on — and D4 already records that this set
+is contaminated by authorship. k₀ is tuned on dev and reported on P4's set, which is what the
+dev/held-out split is for. `Retriever.build` therefore takes `k0`, defaulting to 60.
+
+Two things this table settles beyond k₀. Recall@5 at the untuned default is **unchanged** at
+0.972 while Recall@1 gains **9.8 points** — §3.1's saturation argument arriving as data rather
+than as an argument, and the reason D5 reports both. And round-robin merging reaches Recall@5
+1.000 while leaving Recall@1 at the lexical baseline, because alternating always hands position
+one to BM25; it is a worse answer that looks better on the graded metric alone.
 
 ### D10 — In-memory index; no vector database
 
@@ -215,13 +281,21 @@ packages/oncall-knowledge/src/oncall_knowledge/
 ├── validator.py       exists — corpus validation
 ├── ingestion.py       exists — discover + validate, root-pinned
 ├── indexing/
-│   ├── lexical.py     BM25 + the camelCase-aware tokenizer
+│   ├── text.py        tokenizer + index_text: the text BOTH halves index
+│   ├── lexical.py     BM25 (ours, see D7) + IndexEntry
 │   ├── semantic.py    embeddings (optional dependency)
 │   └── hybrid.py      RRF fusion
 ├── retrieval.py       the ONE interface the commander calls
-├── evaluation.py      Recall@k, MRR, per-query output
+├── evaluation.py      QueryCase, metrics, per-query output
+├── experiment.py      run a config, write the record, compare two
 └── inspection.py      CLI: show me what a query retrieves and why
 ```
+
+`indexing/text.py` was not in this list when the design was written and is the most important
+file in it: if the lexical and semantic halves ever index different text, config B changes two
+variables at once and its before/after number attributes nothing. `experiment.py` sits at the
+package top level, not under `indexing/`, because `indexing/` holds the interchangeable scorers
+and the runner is not one of them -- it is also the `python -m` entry point.
 
 `retrieval.py` is the only public surface. Everything under `indexing/` is internal and may be
 replaced — that is what makes D10 a deferral rather than a commitment.
@@ -245,6 +319,42 @@ Run on the development set *and* on P4's set (D4, labelled per D12), reported se
 record now, so it can be wrong: **Recall@5 moves by ~0 on the development set and visibly on
 the hard subset.** If B improves the development Recall@5 by a lot, suspect contamination
 before celebrating.
+
+### 6.1 Result, 2026-11-04 — development set, k₀ = 60
+
+Records: `artifacts/retrieval/A-8193aa9e-20261104T144746.json` and
+`B-8193aa9e-20261104T144753.json`, both on query set `8193aa9e` over 18 documents.
+
+| Metric | A | B | Δ |
+|---|---|---|---|
+| Recall@5 | 0.972 | 0.972 | **+0.000** |
+| Recall@1 | 0.648 | 0.746 | **+0.099** |
+| MRR | 0.787 | 0.841 | +0.054 |
+
+17 queries improved, 7 regressed.
+
+**The prediction above was half right, and the wrong half is the interesting one.** Recall@5
+moved by ~0 overall, as expected. It also moved by **exactly 0 on the hard subset**, which the
+prediction said would move visibly:
+
+| Subset | n | Recall@5 | Recall@1 | MRR |
+|---|---|---|---|---|
+| hard (query/document overlap ≤ 0.60) | 21 | 0.905 → 0.905 (+0.000) | 0.429 → 0.524 (+0.095) | 0.635 → 0.690 (+0.055) |
+| easy | 50 | 1.000 → 1.000 (+0.000) | 0.740 → 0.840 (+0.100) | 0.850 → 0.904 (+0.054) |
+
+The Recall@1 gain is **uniform** across hard and easy queries (+0.095 and +0.100), not
+concentrated in the hard ones, so the mechanism is not what the prediction assumed.
+
+**What hybrid retrieval actually did: it reordered what BM25 had already retrieved, and rescued
+nothing BM25 missed entirely.** Reordering lifts Recall@1 and MRR across the board. Rescuing a
+missed document is what would lift Recall@5 on hard queries — and that is precisely what RRF at
+k₀ = 60 refuses to do, because a document only one half returned earns a single 1/(60+1) against
+two contributions for anything both halves found (D9). The two findings are one fact seen from
+two directions.
+
+Reportable as it stands: *hybrid retrieval improved ranking quality by ~10 points of Recall@1
+without improving coverage at all.* Whether coverage can be bought by lowering k₀ is a question
+for P4's set, not this one.
 
 ---
 

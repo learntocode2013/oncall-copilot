@@ -20,8 +20,13 @@ evaluation and interpretation to be the team's own.
 
 What that means in practice:
 
-- **Explain the decision space; let the owner decide and write.** Lay out the options and the
-  trade-offs. Do not pick for them and hand back a finished file.
+- **Explain the decision space; the owner decides.** Lay out the options and the trade-offs.
+  Never pick a design for them and present it as settled.
+- **Write the files yourself once the design is agreed** — the owner's standing instruction from
+  2026-11-04. Show the code, write it to disk, and let them review `git diff`. This replaced
+  hand-pasting from chat, which silently mangled three files: one paste lost a class-body indent
+  level so every method became module-level, another dropped a whole function signature and part
+  of a comprehension. The co-build rule protects authorship of *decisions*, not of retyping.
 - **Do not produce large artifacts unprompted.** No speculative modules, docs or refactors.
 - **Mechanical plumbing is yours:** Compose, Makefile, CI, scaffolding, build files — nobody is
   examined on those. Graded content (runbooks, policies, the graph, the eval harness,

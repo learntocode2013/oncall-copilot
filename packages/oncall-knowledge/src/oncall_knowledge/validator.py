@@ -522,11 +522,17 @@ def check_fault_coverage(
                 field="faults",
             )
         )
-    for missing in sorted(corpus_ids - manifest_ids):
+    # One line, not one per runbook. This direction is EXPECTED while the corpus
+    # leads the eval suite (18 runbooks, 1 injected fault), so emitting sixteen
+    # identical warnings trains everyone to scroll past the validator's output --
+    # and the next real warning goes past with them.
+    not_injected = sorted(corpus_ids - manifest_ids)
+    if not_injected:
         issues.append(
             ValidationIssue(
                 str(manifest_path),
-                f"runbook {missing!r} describes a fault the manifest never injects",
+                f"{len(not_injected)} of {len(corpus_ids)} cause runbooks describe faults the "
+                f"manifest does not yet inject: {', '.join(not_injected)}",
                 field="faults",
                 severity="warning",
             )

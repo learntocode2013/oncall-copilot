@@ -276,3 +276,45 @@ def test_ci_runs_the_guards_and_cannot_be_softened() -> None:
         rendered = yaml.safe_dump(gate)
         assert "heldout" not in rendered, "the CI eval gate must never run on held-out cases"
         assert "eval/dev" in rendered, "the CI eval gate must name eval/dev explicitly"
+
+
+def test_the_index_never_contains_a_labelled_query() -> None:
+    """A document that indexes its own query matches itself.
+
+    Measured on this corpus: including `queries` in the index text takes
+    Recall@1 from 0.648 to 0.958 and Recall@5 to 1.000. Nothing raises, no run
+    fails, and the retrieval experiment becomes a measurement of nothing.
+
+    test_corpus_validates already checks the BODY, which never held the queries.
+    The leak is one layer later, where an indexer assembles metadata -- so this
+    guard asserts on the assembled entry. It is the fifth failure named in this
+    module's docstring, and the last one to get a guard.
+    """
+    from oncall_knowledge.indexing.lexical import LexicalIndex
+    from oncall_knowledge.ingestion import ingest_runbooks
+
+    documents = ingest_runbooks()
+    queries_by_id = {d.document_id: d.metadata.queries for d in documents}
+
+    for entry in LexicalIndex.build(documents).entries:
+        for query in queries_by_id[entry.document_id]:
+            assert query not in entry.text, (
+                f"{entry.document_id} indexes its own labelled query: {query!r}"
+            )
+
+
+def test_every_index_entry_comes_from_the_data_tree() -> None:
+    """Retrieval must never be able to index the answers.
+
+    eval/ holds the fault manifest and the held-out cases. An ingestion glob
+    that reached it would raise nothing and would quietly make every score
+    meaningless, so the assertion is on the path of what actually got indexed.
+    """
+    from oncall_knowledge.indexing.lexical import LexicalIndex
+    from oncall_knowledge.ingestion import ingest_runbooks
+
+    for entry in LexicalIndex.build(ingest_runbooks()).entries:
+        parts = Path(entry.source_path).resolve().parts
+
+        assert "data" in parts, f"{entry.document_id} was indexed from {entry.source_path}"
+        assert "eval" not in parts, f"{entry.document_id} was indexed from eval/"
