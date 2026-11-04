@@ -69,14 +69,16 @@ things at once.
 ```python
 def test_camel_case_identifiers_also_index_as_words():
     tokens = tokenize("paymentFailure")
-    assert "paymentfailure" in tokens   # exact-identifier queries
-    assert "payment" in tokens          # prose queries
+    assert "paymentfailure" in tokens  # exact-identifier queries
+    assert "payment" in tokens  # prose queries
     assert "failure" in tokens
+
 
 def test_metric_names_split_on_underscores():
     tokens = tokenize("demo_payment_transactions_total")
     assert "payment" in tokens
     assert "transactions" in tokens
+
 
 def test_tokenizing_is_case_insensitive():
     """A leading capital must not change the result. NOT compared against
@@ -86,6 +88,7 @@ def test_tokenizing_is_case_insensitive():
     assert tokens  # else a stub returning None passes vacuously
     assert tokenize("PaymentFailure") == tokens
 
+
 def test_index_text_carries_the_retrieval_metadata():
     doc = next(d for d in ingest_runbooks() if d.document_id == "payment-failure")
     text = index_text(doc)
@@ -93,11 +96,13 @@ def test_index_text_carries_the_retrieval_metadata():
     assert doc.metadata.service in text
     assert doc.metadata.fault_id in text
 
+
 def test_index_text_never_contains_a_labelled_query():
     """D3: the leak that takes Recall@1 from 0.65 to 0.96."""
     for doc in ingest_runbooks():
         for query in doc.metadata.queries:
             assert query not in index_text(doc)
+
 
 def test_index_text_is_exactly_the_four_permitted_fields():
     """Token sets, so the join format stays the implementer's choice.
@@ -108,9 +113,13 @@ def test_index_text_is_exactly_the_four_permitted_fields():
     index_text ADDS, not which words the prose happens to use.
     """
     for doc in ingest_runbooks():
-        permitted = " ".join(p for p in (doc.body, doc.metadata.symptom,
-                                         doc.metadata.service, doc.metadata.fault_id) if p)
+        permitted = " ".join(
+            p
+            for p in (doc.body, doc.metadata.symptom, doc.metadata.service, doc.metadata.fault_id)
+            if p
+        )
         assert set(tokenize(index_text(doc))) == set(tokenize(permitted))
+
 
 def test_a_runbook_without_a_fault_id_does_not_index_the_word_none():
     """checkout-error-rate-elevated is the symptom runbook: fault_id is None.
@@ -161,14 +170,21 @@ git commit -m "feat(knowledge): add the shared tokenizer and index text"
   - `LexicalIndex.build(documents: Sequence[RunbookDocument]) -> LexicalIndex`
   - `LexicalIndex.entries -> tuple[IndexEntry, ...]`
   - `LexicalIndex.search(query: str, k: int) -> list[tuple[str, float]]` — `(document_id, score)`,
-    highest first, **tie-broken by `document_id` ascending**
+    highest first, **tie-broken by `document_id` ascending**, **zero-score documents omitted**
 
 - [ ] **Step 1: Write the failing tests**
 
 ```python
 def test_exact_identifier_query_finds_its_runbook():
+    """`emailMemoryLeak`, NOT `paymentFailure`. Measured margins over the
+    runner-up: emailMemoryLeak 13.72, paymentFailure 0.0413. The second is thin
+    enough to flip on an IDF implementation change, which would make the test
+    about rank-bm25's internals rather than our tokenizer. The payment pair gets
+    its own top-2 test instead -- they discuss each other by design.
+    """
     index = LexicalIndex.build(ingest_runbooks())
-    assert index.search("paymentFailure", k=1)[0][0] == "payment-failure"
+    assert index.search("emailMemoryLeak", k=1)[0][0] == "email-memory-leak"
+
 
 def test_ties_break_deterministically():
     """Review Focus 2: insertion-ordered ties make every A/B delta partly noise."""
@@ -177,18 +193,25 @@ def test_ties_break_deterministically():
     again = LexicalIndex.build(ingest_runbooks()).search("checkout 422", k=5)
     assert once == again
 
+
 def test_empty_query_returns_no_results():
     """Review Focus 3."""
     index = LexicalIndex.build(ingest_runbooks())
     assert index.search("", k=5) == []
     assert index.search("   ", k=5) == []
 
-def test_zero_overlap_query_returns_k_results_with_zero_scores():
-    """Review Focus 4: a miss must still be an ordered, reproducible ranking."""
+
+def test_a_query_matching_nothing_returns_no_results():
+    """Review Focus 4. CHANGED from "returns k zero-scored results" after
+    measuring: exactly 1 of 71 queries scores 0.0 against its own runbook and it
+    already sits at rank 13, so dropping zero-score hits costs 0.000 Recall@5 --
+    while keeping them would hand RRF an alphabetical ordering of seven
+    unmatched documents as if it were evidence. A zero-score document was not
+    retrieved; it was merely not excluded.
+    """
     index = LexicalIndex.build(ingest_runbooks())
-    results = index.search("zzzz qqqq", k=5)
-    assert len(results) == 5
-    assert all(score == 0.0 for _, score in results)
+    assert index.search("zzzz qqqq xyzzy", k=5) == []
+
 
 def test_entries_carry_status_without_indexing_it():
     index = LexicalIndex.build(ingest_runbooks())
@@ -279,29 +302,36 @@ git commit -am "feat(knowledge): add the BM25 index and guard it against query s
 ```python
 CASES = [QueryCase("q1", frozenset({"a"})), QueryCase("q2", frozenset({"b", "c"}))]
 
+
 def test_rank_is_one_based_and_none_for_a_miss():
     assert rank_of_first_gold(["x", "a"], frozenset({"a"})) == 2
     assert rank_of_first_gold(["x", "y"], frozenset({"a"})) is None
+
 
 def test_any_gold_member_counts_as_a_hit():
     """D12: 'ads fail to load' fairly matches three ad runbooks."""
     assert rank_of_first_gold(["c", "b"], frozenset({"b", "c"})) == 1
 
+
 def test_metrics_on_a_known_ranking():
     def search(query, k):
         return [("a", 1.0)] if query == "q1" else [("z", 1.0)]
+
     result = evaluate(search, CASES, k=5)
     assert result.recall_at_1 == 0.5
     assert result.mrr == 0.5
+
 
 def test_dev_cases_cover_every_labelled_query():
     documents = ingest_runbooks()
     assert len(dev_cases(documents)) == sum(len(d.metadata.queries) for d in documents)
 
+
 def test_query_set_hash_changes_when_a_gold_label_changes():
     """Review Focus 5's mechanism."""
     other = [CASES[0], QueryCase("q2", frozenset({"b"}))]
     assert query_set_hash(CASES) != query_set_hash(other)
+
 
 def test_query_set_hash_is_order_independent():
     assert query_set_hash(CASES) == query_set_hash(list(reversed(CASES)))
@@ -351,10 +381,12 @@ def test_baseline_reproduces_the_measured_recall():
     assert result.recall_at_5 >= 0.95
     assert result.recall_at_1 >= 0.60
 
+
 def test_record_carries_the_query_set_hash_and_every_case():
     ...
     assert record["query_set_hash"]
     assert len(record["cases"]) == result.n_cases
+
 
 def test_write_record_names_the_file_after_the_config(tmp_path):
     path = write_record(record, out_dir=tmp_path)
@@ -406,8 +438,10 @@ def test_missing_dependency_raises_instead_of_falling_back(monkeypatch):
     with pytest.raises(SemanticUnavailableError, match="uv sync --extra semantic"):
         SemanticIndex.build(ingest_runbooks())
 
+
 def test_the_model_is_pinned():
     assert SemanticIndex.MODEL_REVISION  # recorded in every run record
+
 
 def test_finds_the_paraphrase_bm25_misses():
     """'assistant feels sluggish but works' has ZERO lexical overlap with its
@@ -465,16 +499,19 @@ def test_rrf_uses_ranks_not_scores():
     fused = [doc_id for doc_id, _ in rrf([["a", "b"], ["c", "b"]])]
     assert fused[0] == "b"
 
+
 def test_rrf_matches_the_formula():
     fused = dict(rrf([["a", "b"]], k0=60))
     assert fused["a"] == pytest.approx(1 / 61)
     assert fused["b"] == pytest.approx(1 / 62)
+
 
 def test_results_expose_each_retriever_rank():
     """§11: an RRF hit you cannot attribute is an RRF hit you cannot debug."""
     r = Retriever.build(ingest_runbooks(), semantic=False).retrieve("paymentFailure")
     assert r[0].lexical_rank == 1
     assert r[0].semantic_rank is None
+
 
 def test_retrieval_does_not_filter_on_status():
     """D13: 2 of 18 runbooks are `hypothesis`; retrieval exposes, never hides."""
