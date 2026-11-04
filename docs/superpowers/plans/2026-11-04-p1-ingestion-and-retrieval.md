@@ -372,13 +372,28 @@ metrics, and keeps the full `depth` ranking only for `rank` so MRR is not censor
 **Interfaces:**
 - Consumes: Tasks 2 and 3.
 - Produces:
-  - `build_record(config_id: str, result: EvalResult, *, model_id: str | None) -> dict`
-  - `write_record(record: dict, out_dir: Path = Path("artifacts/retrieval")) -> Path`
+  - `build_record(config_id: str, result: EvalResult, *, query_set_name: str, n_documents: int,
+    model_id: str | None = None, model_revision: str | None = None) -> dict`
+  - `write_record(record: dict, out_dir: Path = Path("artifacts/retrieval")) -> Path` — creates
+    `out_dir`, and names the file so **two runs of the same config never collide**: config A
+    will be run many times and the history is the evidence.
   - `main(argv: Sequence[str] | None = None) -> int` — `--config {A,B}`, `--cases {dev,<path>}`,
-    `--out <dir>`
+    `--out <dir>`. Prints the metrics and exits 0.
 
-The record carries `config_id`, `model_id`, `query_set_hash`, `recall_at_1`, `recall_at_5`,
-`mrr`, `n_cases`, and a `cases` list of `{query, gold, rank, top}` (§11).
+The record is **flat** (Task 7's `compare` reads it directly) and carries `config_id`,
+`model_id`, `model_revision`, `created_at`, `query_set_name`, `query_set_hash`, `n_cases`,
+`n_documents`, `recall_at_1`, `recall_at_5`, `mrr`, and a `cases` list of
+`{query, gold, rank, top}` (§11).
+
+Two details the tests pin. `model_id` is **present and null** for config A, never absent: a
+missing key reads as "we forgot", null as "there is no model", and Task 7 must tell those
+apart. And `gold` serialises as a **sorted list**, because a frozenset is not JSON and an
+unsorted list makes two identical runs produce different files.
+
+`query_set_name` and `n_documents` are additions to the signature the plan first gave. Both
+exist for reproducibility: a record that does not say which query set it scored, or how many
+documents were in the corpus, cannot be compared against one taken after the 8 seed
+postmortems land.
 
 - [ ] **Step 1: Write the failing tests**
 
