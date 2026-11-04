@@ -158,7 +158,6 @@ git commit -m "feat(knowledge): add the shared tokenizer and index text"
 
 **Files:**
 - Create: `packages/oncall-knowledge/src/oncall_knowledge/indexing/lexical.py`
-- Modify: `packages/oncall-knowledge/pyproject.toml` — add `rank-bm25>=0.2.2`
 - Modify: `tests/test_guards.py`
 - Test: `packages/oncall-knowledge/tests/test_lexical_index.py`
 
@@ -255,15 +254,20 @@ def test_the_index_never_contains_a_labelled_query() -> None:
 
 - [ ] **Step 2: Run both test files and confirm they fail**
 
-- [ ] **Step 3: Add the dependency**
+- [ ] **Step 3: No dependency — the scorer is ours (revised D7)**
 
-Run: `uv add --package oncall-knowledge 'rank-bm25>=0.2.2'`
+`rank-bm25` was tried and dropped: its default costs 4 points of Recall@1 on an 18-document
+corpus, and the variant that recovers the number scores every document nonzero, which disables
+the zero-score filter. The spec's D7 table has the measurements.
+
+Run: `uv remove --package oncall-knowledge rank-bm25` if it is still present.
 
 - [ ] **Step 4: Implement `IndexEntry` and `LexicalIndex` in `indexing/lexical.py`**
 
-Wrap `rank_bm25.BM25Okapi` over `[tokenize(index_text(d)) for d in documents]`. `search` returns
-`sorted(..., key=lambda r: (-score, document_id))[:k]`, and short-circuits to `[]` when
-`tokenize(query)` is empty.
+BM25 with `k1 = 1.5`, `b = 0.75` and `idf = log(1 + (N - df + 0.5) / (df + 0.5))`, over
+`[tokenize(entry.text) for entry in entries]`. `search` short-circuits to `[]` when
+`tokenize(query)` is empty, drops `score == 0.0` **before** truncating, and sorts by
+`(-score, document_id)`.
 
 - [ ] **Step 5: Run both test files and `make guards`; confirm all pass**
 

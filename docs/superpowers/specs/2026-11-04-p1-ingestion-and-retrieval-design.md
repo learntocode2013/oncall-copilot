@@ -149,12 +149,45 @@ reader can see which queries moved.
 Nothing in the corpus exceeds the budget (§2). A `chunking.py` would be written, tested and
 defended without changing a single retrieval result. Revisit when D1's thresholds are crossed.
 
-### D7 — Lexical: BM25 via `rank-bm25`; our own tokenizer
+### D7 — Lexical: BM25 is ours, scoring function included
 
-*My call, reversible.* Scoring is standard and not where this project's risk lives. The
-tokenizer **is** ours, because it carries one requirement: `paymentFailure` must also index as
-`payment` + `failure`, or exact-identifier queries and prose queries cannot both work. The
-stdlib BM25 from the spike is the fallback if the dependency proves awkward.
+**Revised 2026-11-04, reversing this decision's first form.** D7 originally chose `rank-bm25`,
+on the grounds that "scoring is standard and not where this project's risk lives". That was
+measured during Task 2 and found false. Over the 71 labelled queries, with the index text and
+tokenizer held identical:
+
+| Scorer | Recall@5 | Recall@1 | MRR | Zero-score filter prunes |
+|---|---|---|---|---|
+| `rank_bm25.BM25Okapi` (its default) | 0.958 | 0.606 | 0.748 | 12 of 18 |
+| `rank_bm25.BM25Okapi(epsilon=0.0)` | 0.901 | 0.577 | 0.720 | 12 of 18 |
+| `rank_bm25.BM25L` | 0.958 | 0.577 | 0.748 | 12 of 18 |
+| `rank_bm25.BM25Plus` | 0.972 | 0.648 | 0.788 | **0 of 18** |
+| **ours, ~25 lines** | **0.972** | **0.648** | **0.787** | 12 of 18 |
+
+The variant choice moves Recall@1 by **7 points**, which is more than the entire hybrid
+experiment is expected to move Recall@5. Scoring is exactly where the risk lives on a corpus
+this small, and the reason is specific to the corpus size:
+
+**Okapi IDF goes negative on a small corpus.** 93 of the 1,174 vocabulary terms appear in 10 or
+more of the 18 documents, which gives them a negative raw Okapi IDF. `rank-bm25` floors every
+one of those to the same positive constant, `epsilon * average_idf`, so each common word
+contributes identical weight. That flattening costs 4 points of Recall@1.
+
+**`BM25Plus` recovers the number but breaks the zero-score contract.** Its `delta` term is added
+outside the term-frequency factor, so it applies at frequency zero: all 18 documents score
+nonzero for `"payment"` when only 6 contain it. That makes the zero-score filter a no-op and
+hands RRF an ordering of 12 documents that do not contain the query term, as though it were
+evidence. Breaking a measurement guarantee to recover a metric is the wrong trade.
+
+Ours keeps IDF positive and monotonic — `log(1 + (N - df + 0.5) / (df + 0.5))`, k1 = 1.5,
+b = 0.75 — so **a zero score still means "no match"**, which is what D7's consumers rely on.
+
+The tokenizer was always ours, because it carries one requirement: `paymentFailure` must also
+index as `payment` + `failure`, or exact-identifier queries and prose queries cannot both work.
+
+There is a second reason to own this, beyond the numbers: on an 18-document corpus the viva
+question is *why does retrieval behave this way*, and "93 terms earn a negative IDF that the
+library flattens to a constant" is an answer only available about code we own.
 
 ### D8 — Semantic: `sentence-transformers` behind an optional extra
 
