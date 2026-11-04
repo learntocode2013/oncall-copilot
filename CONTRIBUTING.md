@@ -63,6 +63,69 @@ Neither change is P1's to make alone. Until it is settled, `oncall-knowledge` ex
 `Retriever.build(documents, *, semantic, k0)` and `Retriever.retrieve(query, k) ->
 list[RetrievalResult]`, and does not care who calls it.
 
+### The `mcp-runbooks` tool contract
+
+**P1 proposes this; P3 owns the server.** Same split as the P2/P3 seam below: the schema is the
+dependency, the implementation is the owner's. P1 will not write
+`oncall_tools/servers/runbooks_kb/` — it is P3's graded component, and the guard change it needs
+should not be landed by the package that wants it.
+
+Two tools, both `read`:
+
+```python
+search_runbooks(query: str, k: int = 5) -> list[RunbookHit]
+get_runbook(document_id: str) -> Runbook
+```
+
+```python
+RunbookHit = {
+    "document_id": str,  # "payment-failure"
+    "status": str,  # verified | structural | hypothesis
+    "service": str,
+    "severity": str,
+    "excerpt": str,  # first ~60 words of the body
+    "score": float,  # fused; comparable only WITHIN one response
+    "lexical_rank": int | None,
+    "semantic_rank": int | None,
+}
+Runbook = RunbookHit | {"body": str, "fix": dict | None, "preconditions": list[str]}
+```
+
+Six things this contract pins, each for a reason:
+
+**Two tools, not one.** Median runbook body is ~440 tokens, so returning five full bodies costs
+~2,200 tokens per search. Search returns excerpts; the agent fetches the one it wants. If P3
+measures that the round trip hurts more than the tokens, collapsing to one tool is theirs to
+decide — but the default should be the cheap one.
+
+**`status` is returned and never filtered on** (design D13). 14 of 18 runbooks are `structural`
+— behaviour never actually observed — and 2 are `hypothesis`. The agent must be able to say "the
+only runbook I found is unverified"; it cannot if retrieval silently dropped them. Equally, a
+`sev1` runbook must not rank higher for containing the word "sev1", which is why `severity` is
+returned but is not index text.
+
+**Both pre-fusion ranks travel with the hit.** `lexical_rank=None, semantic_rank=1` means only
+the embedding found this; that is the difference between a confident single-source hit and
+agreement between two retrievers, and it is the only way to debug a bad answer after the fact.
+
+**`score` is comparable within one response and nowhere else.** It is an RRF sum over
+`1/(k0+rank)`; it has no absolute meaning, no stable scale across queries, and must never be
+thresholded. Document that in the tool description so the model is not invited to.
+
+**No `service` or `status` filter arguments.** Both are tempting and both would let the agent
+narrow to what it already believes, which is the failure mode the whole corpus exists to break:
+it is how a wrong hypothesis gets confirmed. Filtering is a ranking decision and belongs to the
+commander's reasoning, over results it can see.
+
+**The server builds its own `Retriever` and holds the documents**, which is how it answers
+`service`, `severity` and `body` — `RetrievalResult` carries only `document_id`, `status`,
+`score` and the two ranks. No change to `oncall-knowledge` is needed. Build it once at startup:
+`Retriever.build(ingest_runbooks(), semantic=True)` loads an 80 MB model and takes ~10 seconds,
+so per-request construction would be visible in every trace.
+
+Ingestion is root-pinned to `data/runbooks/`, so the server cannot reach `eval/` even if asked.
+That is enforced in `ingest_runbooks`, not here.
+
 ## Public surfaces
 
 Keep these small. Everything else in a package is internal and may change freely.
