@@ -133,9 +133,11 @@ def test_it_indexes_the_same_text_as_the_lexical_index(documents):
     """If the two halves read different text, config B changes two things at
     once and the before/after number attributes nothing.
 
-    IndexEntry should move to indexing/text.py in Task 6, where the hybrid
-    retriever needs it too -- at which point the query-leak guard should assert
-    on the shared builder rather than on LexicalIndex alone.
+    Now guaranteed by construction: both halves call
+    `indexing.text.build_entries`. This test remains as the thing that fails if
+    either half starts assembling its own entries again -- which is also what
+    let the query-leak guard move onto the shared builder, where it needs no
+    model and therefore runs in CI.
     """
     pytest.importorskip("sentence_transformers")
     from oncall_knowledge.indexing.lexical import LexicalIndex

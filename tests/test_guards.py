@@ -194,16 +194,18 @@ def test_eval_does_not_import_graph() -> None:
     assert not offenders, f"oncall-eval must not import oncall_graph: {offenders}"
 
 
-def test_ingestion_globs_exclude_the_eval_tree() -> None:
-    """Retrieval must never be able to index the answers."""
-    ingest = pytest.importorskip(
-        "oncall_knowledge.ingest",
-        reason="activates when oncall_knowledge.ingest exposes ingestion_globs()",
-    )
-    for glob in ingest.ingestion_globs():
-        assert glob.startswith("data/"), (
-            f"ingestion glob {glob!r} must be rooted in data/; eval/ holds the answers"
-        )
+# RETIRED: test_ingestion_globs_exclude_the_eval_tree.
+#
+# It importorskip'd `oncall_knowledge.ingest` for an `ingestion_globs()` that was
+# never written -- the module landed as `oncall_knowledge.ingestion`, exposing
+# `ingest_runbooks()` with the corpus root pinned instead. So the guard skipped
+# on every run and would have forever, which is worse than absent: a permanent
+# skip reads as pending coverage in -v output and provides none.
+#
+# Its property is now covered more directly by
+# test_every_index_entry_comes_from_the_data_tree, which asserts on the
+# source_path of what actually got indexed rather than on a glob pattern that
+# might not be the one ingestion uses.
 
 
 def test_every_package_has_a_codeowner() -> None:
@@ -290,13 +292,13 @@ def test_the_index_never_contains_a_labelled_query() -> None:
     guard asserts on the assembled entry. It is the fifth failure named in this
     module's docstring, and the last one to get a guard.
     """
-    from oncall_knowledge.indexing.lexical import LexicalIndex
+    from oncall_knowledge.indexing.text import build_entries
     from oncall_knowledge.ingestion import ingest_runbooks
 
     documents = ingest_runbooks()
     queries_by_id = {d.document_id: d.metadata.queries for d in documents}
 
-    for entry in LexicalIndex.build(documents).entries:
+    for entry in build_entries(documents):
         for query in queries_by_id[entry.document_id]:
             assert query not in entry.text, (
                 f"{entry.document_id} indexes its own labelled query: {query!r}"
@@ -310,10 +312,10 @@ def test_every_index_entry_comes_from_the_data_tree() -> None:
     that reached it would raise nothing and would quietly make every score
     meaningless, so the assertion is on the path of what actually got indexed.
     """
-    from oncall_knowledge.indexing.lexical import LexicalIndex
+    from oncall_knowledge.indexing.text import build_entries
     from oncall_knowledge.ingestion import ingest_runbooks
 
-    for entry in LexicalIndex.build(ingest_runbooks()).entries:
+    for entry in build_entries(ingest_runbooks()):
         parts = Path(entry.source_path).resolve().parts
 
         assert "data" in parts, f"{entry.document_id} was indexed from {entry.source_path}"
