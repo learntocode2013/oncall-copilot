@@ -125,6 +125,12 @@ verify:
 	@printf 'shop frontend '; curl -fsS -o /dev/null -w '%{http_code}\n' localhost:8080/
 	@printf 'incident API  '; curl -fsS localhost:8000/healthz && echo
 	@printf 'lab           '; curl -fsS localhost:8020/healthz && echo
+# No -f here, unlike the three above: MCP's streamable-http endpoint answers a
+# bare GET with a 400, which is a SERVER THAT WORKS. curl still exits non-zero
+# when nothing is listening, so this fails on a dead service and passes on a
+# live one -- the opposite of what -f would do. Confirmed against the running
+# container.
+	@printf 'mcp-runbooks  '; curl -sS -o /dev/null -w '%{http_code}\n' localhost:8102/mcp
 
 urls:
 	@echo ""
