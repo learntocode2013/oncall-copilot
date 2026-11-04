@@ -25,6 +25,7 @@ knowledge, tools  ◀──  graph
 graph             ◀──  service
 service           ◀──  eval          (over HTTP, never by import)
 eval              ◀──  nothing
+lab               ◀──  nothing       (pages the service over HTTP; holds the fault manifest)
 ```
 
 `oncall-contracts` exists to break a cycle. If `IncidentState` lived in `oncall-graph`, then P4
@@ -137,6 +138,7 @@ Keep these small. Everything else in a package is internal and may change freely
 | `oncall-knowledge` | `Retriever.build(documents, *, semantic, k0)` / `.retrieve(query, k)` / `.search(query, k)`; memory-store interfaces to come. Everything under `indexing/` is internal |
 | `oncall-service` | the HTTP API (not a Python API) |
 | `oncall-eval` | a CLI; imported by nobody |
+| `oncall-lab` | the HTTP lab on port 8020; imported by nobody |
 
 ## The three E1 configurations
 
@@ -180,7 +182,7 @@ Every server is runnable as a module (`python -m oncall_tools.servers.telemetry`
 `registry.py` reads the transport from config, so `build_graph(tools=load_tools())` is identical
 either way and P2 never knows which transport is live.
 
-Ports: incident API `8000`, MCP servers `8101`–`8104`. Do not use 8080, 8081, 8089, 8090, 8013,
+Ports: incident API `8000`, lab `8020`, MCP servers `8101`–`8104`. Do not use 8080, 8081, 8089, 8090, 8013,
 8016, 4000, 3000, 9090, 9200, 16686 or 4317 — the demo claims all of them.
 
 **Write isolation is enforced in `permissions.py` and `hooks/pre_tool.py`, not by network
@@ -199,7 +201,9 @@ build:
 ```
 
 `--project-directory` does not fix this: it moves resolution for both files and breaks the demo's
-own paths. After any overlay change, run `make config` and read the rendered output.
+own paths. After any overlay change, run `make config` and read the rendered output. Paths are
+interpolated, so `oncall-service`'s build context is this repo. Values whose names contain
+`API_KEY`, `_KEY`, `TOKEN`, `SECRET`, or `PASSWORD` are replaced with `<redacted>`.
 
 ## Before you push
 

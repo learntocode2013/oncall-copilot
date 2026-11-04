@@ -1,0 +1,16 @@
+[project]
+name = "oncall-eval"
+version = "0.1.0"
+description = "P4 — fault injector, evaluation harness, judge and red team."
+requires-python = ">=3.12"
+dependencies = [
+    "oncall-contracts",
+    "pyyaml>=6.0.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+oncall-contracts = { workspace = true }

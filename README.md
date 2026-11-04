@@ -10,15 +10,15 @@ Agentic AI Capstone — Project 4 (IT operations, "production" family). Team of 
 
 ## Status
 
-**The shop runs. The agent does not exist yet.**
+**The shop, solo agent, incident API, eval harness, and operations UI run.**
 
 | Works today | Not built yet |
 |---|---|
-| `make bootstrap` / `up` / `down` / `verify` — the full Astronomy Shop with Prometheus, Grafana, Jaeger and OpenSearch | The incident API and UI (`localhost:8000`) |
+| `make bootstrap` / `up` / `down` / `verify` — the Astronomy Shop, telemetry, incident API, and UI | Durable incident storage |
 | `oncall-contracts` — `IncidentState`, `Topology`, `Complexity`, `RunRecord` | The four MCP servers |
-| `make test` / `make lint` | The incident commander and its specialists |
-| | Runbooks, the fault injector, the eval harness |
-| | `make guards` — fails until `tests/test_guards.py` exists |
+| Solo incident agent with exact-action approval. A firing Grafana `CheckoutErrorRateHigh` alert posts `/alerts` and starts it. The lab on port 8020 can arm a manifest fault or page that symptom | Multi-agent commander and specialists |
+| Eval harness, structural guards, and red-team fixtures | Durable runbooks and incident memory |
+| `make test` / `make lint` / `make guards` | |
 
 Background reading, in this order:
 
@@ -88,10 +88,10 @@ That is the whole setup. `make bootstrap` runs six things in order:
 
 1. `git submodule update --init --recursive` — fetches the pinned demo at `3.1.0`
 2. creates `.env` from `.env.example` if it is missing
-3. warns (does not stop) if `OPENROUTER_API_KEY` is empty — nothing calls a model yet
-4. `uv sync` — installs the Python workspace
-5. `docker compose up --wait` — starts the stack and waits for every container to be healthy
-6. `verify` + `urls` — curls the health endpoints and prints where everything is
+3. warns (does not stop) if `OPENROUTER_API_KEY` is empty — the guided demo works without it, but live investigations do not
+4. `uv sync` — installs the Python workspace on the host
+5. `make up` — builds the incident and lab images, starts the stack, and waits until every container with a health check is healthy
+6. `verify` + `urls` — curls Prometheus, the shop, the incident API, and the lab, then prints where everything is
 
 **Forgot `--recurse-submodules`?** Step 1 repairs it. That failure mode is gone.
 
@@ -102,12 +102,15 @@ health-wait, just run it again: everything is cached and the second pass is quic
 ### Every day after
 
 ```bash
-make up          # start — about 30s once images are cached
-#  ... work ...
-make down        # stop and clean up
+make up          # build the incident and lab images, start the stack, verify, print URLs
+# ... work ...
+make stop        # pause the containers and keep telemetry data
 ```
 
-Or `make stop` / `make up` to pause and resume in seconds with telemetry data intact.
+The next `make up` starts those same containers. It recreates the incident
+service or the lab only when that image changed. Use `make down` to remove the containers
+while keeping volumes. `make ui` is only for debugging the incident service on
+the host.
 
 ### After you pull — run `bootstrap`, not `up`
 
@@ -116,10 +119,11 @@ git pull
 make bootstrap
 ```
 
-`make up` does **not** run `uv sync` and does **not** update the submodule. So after pulling a
-teammate's changes, `make up` alone will miss:
+`make up` rebuilds the incident image from the working tree. It does **not** run `uv sync` on
+the host and does **not** update the submodule. So after pulling a teammate's changes, `make up`
+alone will miss:
 
-- a new workspace package → `ModuleNotFoundError` when you import it
+- a new workspace package → `ModuleNotFoundError` when you import it from the host
 - a moved submodule pin → you are silently on the old demo version, and your evaluation
   numbers are no longer comparable to everyone else's
 
@@ -164,11 +168,12 @@ talk to.
 | Jaeger | http://localhost:8080/jaeger/ui/ |
 | **Feature flags** (your fault switch) | http://localhost:8080/feature |
 | Prometheus | http://localhost:9090 |
-| _Incident UI (ours)_ | _`localhost:8000` — not built yet_ |
+| Incident UI (ours) | http://localhost:8000/ |
+| Lab (ours) | http://localhost:8020/ |
 
 ### Your first five minutes with the stack
 
-Open the feature-flag UI, switch `paymentFailure` **on**, and watch Prometheus:
+Open the lab at http://localhost:8020/ and arm `payment-failure`, or use the feature-flag UI and switch `paymentFailure` **on**. Then watch Prometheus:
 
 ```promql
 sum(rate(http_server_request_duration_seconds_count{service_name="frontend",
@@ -191,19 +196,20 @@ successes), and the frontend's HTTP series carry **no `http_route` label**, so a
 | Command | What it does |
 |---|---|
 | `make help` | List every target |
-| `make bootstrap` | **After a clone, and after every pull.** Submodule, `.env`, `uv sync`, start, health-wait, URLs. Idempotent |
-| `make up` | Daily start. Preflight, then up and wait for health |
+| `make bootstrap` | **After a clone, and after every pull.** Submodule, `.env`, host `uv sync`, then `up`. Idempotent |
+| `make up` | Build the incident and lab images, start the stack, wait for health, verify, print URLs |
 | `make preflight` | Name anything a fresh clone is missing, and print the current `MODE` |
-| `make verify` | Curl the health endpoints — our clean-machine install evidence |
+| `make verify` | Curl Prometheus, the shop frontend, the incident API, and the lab |
 | `make urls` | Print the URL table |
-| `make stop` | Halt containers, keep data — `make up` resumes in seconds |
+| `make stop` | Halt containers, keep data. The next `make up` starts those containers again |
 | `make down` | Remove containers, keep volumes |
 | `make reset` | **Also wipes Prometheus/OpenSearch data.** Use between eval runs; never before a demo |
-| `make config` | Render the merged Compose config — how you check an overlay change took effect |
+| `make config` | Render the merged Compose config with paths resolved and secret values redacted |
 | `make reload-rules` | Apply edited Prometheus alert rules without a restart |
 | `make test` | Whole test suite |
-| `make guards` | Just the structural guards — **fails until Task 3 creates them** |
+| `make guards` | Just the structural guards |
 | `make lint` | ruff check + format check |
+| `make eval-fixture` | Replay the development fixtures. This is not a score of the agent |
 | `make docs` | Build the submission PDFs — **not built yet** (Task 9) |
 
 **`down` must take the same `-f` list as `up`.** A bare `docker compose down` orphans 5 of 25

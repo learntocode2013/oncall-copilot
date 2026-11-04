@@ -51,6 +51,18 @@ def test_promql_sends_the_query_to_prometheus(monkeypatch, capsys):
     assert "astronomy shop promql ok series=1" in logged
 
 
+def test_independent_telemetry_urls_support_compose_service_names(monkeypatch):
+    monkeypatch.setenv("PROMETHEUS_URL", "http://prometheus:9090/")
+    monkeypatch.setenv("JAEGER_URL", "http://jaeger:16686/jaeger/ui/")
+    monkeypatch.setenv("OPENSEARCH_URL", "http://opensearch:9200/")
+
+    shop = AstronomyShop(host="ignored.example")
+
+    assert shop.prometheus == "http://prometheus:9090"
+    assert shop.jaeger == "http://jaeger:16686/jaeger/ui"
+    assert shop.opensearch == "http://opensearch:9200"
+
+
 def test_log_search_posts_the_service(monkeypatch, capsys):
     seen = {}
 

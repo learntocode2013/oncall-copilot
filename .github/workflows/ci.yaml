@@ -78,15 +78,21 @@ jobs:
           enable-cache: true
       - run: uv lock --check
 
+  # Fixture replay of eval/dev. Not a score of the agent. The name eval-gate stays
+  # unused until a check grades a live run.
+  eval-fixture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: make eval-fixture
+
 # DEFERRED JOBS — add each one in the same commit that makes it real, never
 # before. A job that is red from the day it lands teaches everyone to ignore
 # the pipeline.
-#
-#   eval-gate   needs packages/oncall-eval. Runs the harness in --mock mode on
-#               eval/dev ONLY, never eval/heldout: CI runs on every push, so
-#               pointing it at held-out would contaminate the set within days.
-#               --mock because CI holds no OPENROUTER_API_KEY; it still checks
-#               case schemas, the manifest cross-check, the RunRecord contract
-#               and the grouping for real.
 #
 #   docs        needs the pandoc target in the Makefile (plan Task 9).

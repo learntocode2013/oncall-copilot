@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="On-Call Copilot incident operations console" />
+    <title>On-Call Copilot · Incident Console</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="On-Call Copilot home">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span><strong>On-Call</strong> Copilot</span>
+        </a>
+        <div class="topbar-actions">
+          <span class="connection" id="connection"><span></span> API connected</span>
+          <button class="button button-quiet" id="live-button" type="button">Start live investigation</button>
+          <button class="button button-primary" id="demo-button" type="button">
+            <span aria-hidden="true">▶</span> Run guided demo
+          </button>
+        </div>
+      </header>
+
+      <aside class="sidebar">
+        <div class="sidebar-heading">
+          <div>
+            <span class="eyebrow">Incident queue</span>
+            <h2>Operations</h2>
+          </div>
+          <button class="icon-button" id="refresh-button" type="button" aria-label="Refresh incidents">↻</button>
+        </div>
+        <div class="queue-summary">
+          <div><strong id="active-count">0</strong><span>active</span></div>
+          <div><strong id="resolved-count">0</strong><span>resolved</span></div>
+        </div>
+        <nav class="incident-list" id="incident-list" aria-label="Incidents"></nav>
+        <div class="sidebar-note">
+          <span class="pulse-dot"></span>
+          <div><strong>Evaluation-ready</strong><small>State is structured and replayable</small></div>
+        </div>
+      </aside>
+
+      <main class="workspace" id="workspace">
+        <section class="empty-state" id="empty-state">
+          <div class="empty-graphic" aria-hidden="true">
+            <span></span><span></span><span></span><span></span>
+          </div>
+          <span class="eyebrow">Incident console</span>
+          <h1>No incident selected</h1>
+          <p>
+            Select an incident from the queue, or run a guided incident to exercise
+            the investigation workflow.
+          </p>
+          <button class="button button-primary button-large" id="empty-demo-button" type="button">Run guided demo</button>
+        </section>
+
+        <section class="incident-view hidden" id="incident-view">
+          <div class="incident-header">
+            <div>
+              <div class="incident-kicker">
+                <span class="status-pill" id="status-pill">QUEUED</span>
+                <span id="incident-mode">demo</span>
+                <span class="muted" id="incident-id">—</span>
+              </div>
+              <h1 id="incident-title">CheckoutErrorRateHigh</h1>
+              <p id="incident-summary">Checkout failures are elevated.</p>
+            </div>
+            <div class="incident-meta">
+              <div><span>Service</span><strong id="incident-service">checkout</strong></div>
+              <div><span>Severity</span><strong id="incident-severity">critical</strong></div>
+              <div><span>Tool budget</span><strong><b id="tool-used">0</b>/<b id="tool-budget">10</b></strong></div>
+            </div>
+          </div>
+
+          <div class="integration-banner" id="integration-banner">
+            <span class="integration-icon">⌁</span>
+            <div><strong>Guided demo</strong><span>Telemetry and actions are simulated; no model tokens are used.</span></div>
+          </div>
+
+          <ol class="stage-rail" id="stage-rail" aria-label="Investigation stages">
+            <li data-stage="scope"><span>1</span><b>Scope</b></li>
+            <li data-stage="hypotheses"><span>2</span><b>Hypothesize</b></li>
+            <li data-stage="test"><span>3</span><b>Test</b></li>
+            <li data-stage="act"><span>4</span><b>Act</b></li>
+            <li data-stage="verify"><span>5</span><b>Verify</b></li>
+            <li data-stage="communicate"><span>6</span><b>Close</b></li>
+          </ol>
+
+          <div class="dashboard-grid">
+            <section class="panel timeline-panel">
+              <div class="panel-heading">
+                <div><span class="eyebrow">Live activity</span><h2>Incident timeline</h2></div>
+                <span class="live-label"><i></i> SSE</span>
+              </div>
+              <div class="timeline" id="timeline"></div>
+            </section>
+
+            <section class="panel investigation-panel">
+              <div class="panel-heading">
+                <div><span class="eyebrow">Agent reasoning</span><h2>Investigation</h2></div>
+                <span class="stage-badge" id="stage-badge">scope</span>
+              </div>
+              <div class="section-block">
+                <div class="section-title"><h3>Current plan</h3><span id="plan-count">0 steps</span></div>
+                <div class="plan-list" id="plan-list"></div>
+              </div>
+              <div class="section-block hypotheses-block">
+                <div class="section-title"><h3>Ranked hypotheses</h3><span>Evidence-bound</span></div>
+                <div id="hypothesis-list"></div>
+              </div>
+            </section>
+
+            <section class="panel evidence-panel">
+              <div class="panel-heading">
+                <div><span class="eyebrow">Read-only sources</span><h2>Evidence</h2></div>
+                <span class="count-badge" id="evidence-count">0</span>
+              </div>
+              <div class="evidence-list" id="evidence-list"></div>
+            </section>
+          </div>
+
+          <section class="approval-panel hidden" id="approval-panel">
+            <div class="approval-signal"><span>!</span></div>
+            <div class="approval-copy">
+              <span class="eyebrow">Human decision required</span>
+              <h2>Review the exact proposed action</h2>
+              <p id="approval-effect">Expected effect</p>
+              <div class="command-row">
+                <code id="approval-command">set_flag(…)</code>
+                <button class="copy-button" id="copy-command" type="button">Copy</button>
+              </div>
+              <small>Payload hash <code id="approval-hash">—</code></small>
+            </div>
+            <div class="approval-actions">
+              <button class="button button-danger" id="reject-button" type="button">Reject</button>
+              <button class="button button-approve" id="approve-button" type="button">Approve exact action</button>
+            </div>
+          </section>
+
+          <section class="verification-panel hidden" id="verification-panel">
+            <div class="verification-mark">✓</div>
+            <div><span class="eyebrow">Code-verified outcome</span><h2>Recovery confirmed</h2><p id="verification-copy"></p></div>
+            <div class="verification-stat"><span>Result</span><strong>Below threshold</strong></div>
+          </section>
+        </section>
+      </main>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/assets/app.js" defer></script>
+  </body>
+</html>

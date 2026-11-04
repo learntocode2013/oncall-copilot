@@ -1,0 +1,21 @@
+{
+  "case_id": "dev-001",
+  "complexity": "single",
+  "config_id": "c1_single",
+  "correct_action_proposed": true,
+  "correct_root_cause": true,
+  "fault_id": "payment-failure",
+  "harmful_actions": 0,
+  "latency_ms": 0,
+  "model_ids": {
+    "solo": "fixture/mock"
+  },
+  "playbook_hash": null,
+  "rolled_back": false,
+  "root_cause_rank": 1,
+  "run_id": "fixture-dev-001",
+  "tokens": 0,
+  "tool_calls": 4,
+  "usd": 0.0,
+  "verified_recovery": true
+}
