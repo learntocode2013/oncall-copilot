@@ -39,8 +39,16 @@ HELDOUT_PATH = re.compile(r"""eval[/\\]held[_-]?out|["']held[_-]?out["']""", re.
 ALLOWED_IMPORTS: dict[str, set[str]] = {
     "oncall_contracts": set(),
     "oncall_knowledge": {"oncall_contracts"},
-    "oncall_tools": {"oncall_contracts"},
-    "oncall_graph": {"oncall_contracts", "oncall_knowledge", "oncall_tools"},
+    # tools MAY import knowledge: mcp-runbooks is a thin wrapper over Retriever,
+    # which is what "retrieval.py is the only public surface" was for. See the
+    # ⚠ note in CONTRIBUTING.md -- the rules previously forbade the package that
+    # needed retrieval and permitted the one that should not reach for it.
+    "oncall_tools": {"oncall_contracts", "oncall_knowledge"},
+    # graph may NOT. P2 reaches retrieval through mcp-runbooks only. Without
+    # this, one E1 topology could retrieve through MCP while another imported
+    # directly, and the comparison between them would differ in retrieval as
+    # well as orchestration -- the one thing E1 exists to isolate.
+    "oncall_graph": {"oncall_contracts", "oncall_tools"},
     "oncall_service": {"oncall_contracts", "oncall_graph"},
     "oncall_eval": {"oncall_contracts"},
 }

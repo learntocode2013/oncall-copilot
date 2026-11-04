@@ -8,6 +8,7 @@ dependencies = [
     "oncall-contracts",
     "oncall-knowledge",
     "oncall-graph",
+    "oncall-tools",
 ]
 
 # `uv sync --extra NAME` resolves extras against THIS project, not against a
@@ -28,6 +29,7 @@ members = ["packages/*"]
 oncall-contracts = { workspace = true }
 oncall-knowledge = { workspace = true }
 oncall-graph = { workspace = true }
+oncall-tools = { workspace = true }
 
 [dependency-groups]
 dev = [
