@@ -30,6 +30,39 @@ eval              ◀──  nothing
 `oncall-contracts` exists to break a cycle. If `IncidentState` lived in `oncall-graph`, then P4
 and P5 would both have to import P2's package, and the eval/tuning separation would collapse.
 
+### ⚠ Open: these rules currently contradict the architecture for retrieval
+
+**Decision needed from P2 and P3 jointly, before anyone writes `runbooks_kb`.**
+
+The architecture says P2 reaches retrieval through MCP: `oncall-graph` calls `load_tools()`,
+which talks to `mcp-runbooks` (`oncall_tools.servers.runbooks_kb`, port 8102 — *"Search runbooks
+and past postmortems. Read-only."*). P2 never sees `Retriever`.
+
+`ALLOWED_IMPORTS` in `tests/test_guards.py` says the opposite, in both directions:
+
+```python
+"oncall_tools": {"oncall_contracts"},                                      # cannot import knowledge
+"oncall_graph": {"oncall_contracts", "oncall_knowledge", "oncall_tools"},  # can
+```
+
+So the package that needs retrieval is forbidden it, and the package that should only ever see
+MCP tools is free to bypass them. `runbooks_kb` will fail the dependency guard on its first real
+line, and nothing currently stops P2 importing `oncall_knowledge.retrieval` directly instead.
+
+Proposed resolution — two changes that make the guard enforce the architecture instead of
+contradicting it:
+
+1. **`oncall_tools` gains `oncall_knowledge`.** The MCP server becomes a thin wrapper over
+   `Retriever`, which is what "retrieval.py is the only public surface" was for.
+2. **`oncall_graph` loses `oncall_knowledge`.** Worth doing on its own merits: without it,
+   nothing prevents one E1 topology retrieving through MCP while another imports directly — and
+   the comparison between them would then differ in retrieval as well as in orchestration, which
+   is exactly what E1 exists to isolate.
+
+Neither change is P1's to make alone. Until it is settled, `oncall-knowledge` exposes
+`Retriever.build(documents, *, semantic, k0)` and `Retriever.retrieve(query, k) ->
+list[RetrievalResult]`, and does not care who calls it.
+
 ## Public surfaces
 
 Keep these small. Everything else in a package is internal and may change freely.
@@ -38,7 +71,7 @@ Keep these small. Everything else in a package is internal and may change freely
 |---|---|
 | `oncall-graph` | `build_graph(tools, store, *, topology) -> CompiledStateGraph` — nothing else |
 | `oncall-tools` | `load_tools(transport) -> ToolRegistry`; the hook callables |
-| `oncall-knowledge` | retriever + memory-store interfaces |
+| `oncall-knowledge` | `Retriever.build(documents, *, semantic, k0)` / `.retrieve(query, k)` / `.search(query, k)`; memory-store interfaces to come. Everything under `indexing/` is internal |
 | `oncall-service` | the HTTP API (not a Python API) |
 | `oncall-eval` | a CLI; imported by nobody |
 
