@@ -209,6 +209,7 @@ successes), and the frontend's HTTP series carry **no `http_route` label**, so a
 | `make test` | Whole test suite |
 | `make guards` | Just the structural guards |
 | `make lint` | ruff check + format check |
+| `make eval-fixture` | Replay the development fixtures. This is not a score of the agent |
 | `make docs` | Build the submission PDFs — **not built yet** (Task 9) |
 
 **`down` must take the same `-f` list as `up`.** A bare `docker compose down` orphans 5 of 25

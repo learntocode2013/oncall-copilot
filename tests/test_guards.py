@@ -284,14 +284,18 @@ def test_ci_runs_the_guards_and_cannot_be_softened() -> None:
         for step in job.get("steps", []):
             assert "continue-on-error" not in step, f"a step in job {name!r} sets continue-on-error"
 
-    # eval-gate does not exist yet. When it does, it must never point at the
-    # held-out set: CI runs on every push, so that would contaminate it within
-    # days and the headline number would measure nothing.
-    gate = jobs.get("eval-gate")
-    if gate is not None:
-        rendered = yaml.safe_dump(gate)
-        assert "heldout" not in rendered, "the CI eval gate must never run on held-out cases"
-        assert "eval/dev" in rendered, "the CI eval gate must name eval/dev explicitly"
+    # eval-fixture replays eval/dev. It must never point at the held-out set:
+    # CI runs on every push, so that would contaminate it within days.
+    # The name eval-gate is reserved for a later check that grades a live run.
+    fixture = jobs.get("eval-fixture")
+    assert fixture is not None, "CI is missing the eval-fixture job"
+    rendered = yaml.safe_dump(fixture)
+    assert "make eval-fixture" in rendered, "the CI job must run make eval-fixture"
+    assert "heldout" not in rendered, "the CI fixture replay must never run on held-out cases"
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    recipe = makefile.split("eval-fixture:", 1)[1].split("\n\n", 1)[0]
+    assert "eval/dev" in recipe, "make eval-fixture must name eval/dev explicitly"
+    assert "heldout" not in recipe, "make eval-fixture must never run on held-out cases"
 
 
 def test_the_index_never_contains_a_labelled_query() -> None:

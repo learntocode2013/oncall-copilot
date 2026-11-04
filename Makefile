@@ -1,5 +1,5 @@
 # Delegates container lifecycle to deploy/; keeps Python tooling here.
-.PHONY: help bootstrap up stop down reset config preflight verify urls reload-rules test lint fix guards eval-gate ui
+.PHONY: help bootstrap up stop down reset config preflight verify urls reload-rules test lint fix guards eval-fixture ui
 
 help:
 	@$(MAKE) -C deploy help
@@ -7,7 +7,7 @@ help:
 	@echo "lint       ruff check + format check (read-only)"
 	@echo "fix        apply the fixes lint reports, then re-run lint"
 	@echo "guards     just the structural guards"
-	@echo "eval-gate  replay development fixtures; no model calls or fault injection"
+	@echo "eval-fixture  replay development fixtures; no model calls or fault injection"
 	@echo "ui         run only the incident API/UI on the host for debugging"
 
 bootstrap up stop down reset config preflight verify urls reload-rules:
@@ -39,7 +39,8 @@ fix:
 guards:
 	uv run pytest tests/test_guards.py -v
 
-eval-gate:
+# Fixture replay only. The name eval-gate stays unused until a check grades a live run.
+eval-fixture:
 	uv run python -m oncall_eval.harness --mock --cases eval/dev --fixtures eval/fixtures --group-by complexity --fail-under 1.0
 
 ui:

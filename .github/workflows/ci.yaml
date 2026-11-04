@@ -78,7 +78,9 @@ jobs:
           enable-cache: true
       - run: uv lock --check
 
-  eval-gate:
+  # Fixture replay of eval/dev. Not a score of the agent. The name eval-gate stays
+  # unused until a check grades a live run.
+  eval-fixture:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -87,7 +89,7 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
       - run: uv sync --frozen
-      - run: uv run python -m oncall_eval.harness --mock --cases eval/dev --fixtures eval/fixtures --group-by complexity --fail-under 1.0
+      - run: make eval-fixture
 
 # DEFERRED JOBS — add each one in the same commit that makes it real, never
 # before. A job that is red from the day it lands teaches everyone to ignore
