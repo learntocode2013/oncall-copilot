@@ -115,6 +115,11 @@ config: preflight
 verify:
 	@printf 'prometheus    '; curl -fsS localhost:9090/-/ready && echo
 	@printf 'shop frontend '; curl -fsS -o /dev/null -w '%{http_code}\n' localhost:8080/
+# No -f: MCP's streamable-http endpoint answers a bare GET with a 4xx, which is
+# a SERVER THAT WORKS. curl still exits non-zero if nothing is listening, so
+# this fails on a dead service and passes on a live one -- which is the
+# opposite way round from how -f would behave here.
+	@printf 'mcp-runbooks  '; curl -sS -o /dev/null -w '%{http_code}\n' localhost:8102/mcp
 
 urls:
 	@echo ""

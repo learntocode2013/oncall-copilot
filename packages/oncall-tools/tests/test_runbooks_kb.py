@@ -12,6 +12,7 @@ transport is the MCP SDK's concern; what this package owns is the contract.
 import pytest
 from oncall_tools.servers.runbooks_kb import (
     EXCERPT_WORDS,
+    _build_retriever,
     build_server,
     configure,
     get_runbook,
@@ -217,3 +218,28 @@ def test_asking_for_semantic_without_the_extra_raises():
     configure(semantic=True)
     with pytest.raises(SemanticUnavailableError, match="uv sync --extra semantic"):
         search_runbooks("payment")
+
+
+def test_build_server_warms_the_retriever_rather_than_deferring_it():
+    """A container that binds its port before retrieval is proven loadable will
+    pass its health check and fail on the first tool call, mid-incident.
+
+    Measured before this was fixed: the container answered HTTP in 2 seconds
+    with no model loaded. The marker is that search is already fast on the
+    first call, because build_server paid the cost.
+    """
+    import time
+
+    configure(semantic=False)
+    _build_retriever.cache_clear()
+
+    start = time.monotonic()
+    build_server(semantic=False)
+    warmed = time.monotonic() - start
+
+    start = time.monotonic()
+    search_runbooks("checkout 422", k=1)
+    first_call = time.monotonic() - start
+
+    assert warmed > 0
+    assert first_call < warmed or first_call < 0.05

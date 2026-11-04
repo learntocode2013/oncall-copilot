@@ -169,6 +169,19 @@ def build_server(*, semantic: bool = True) -> MCPServer:
     anything.
     """
     configure(semantic=semantic)
+
+    # Build the retriever NOW, not on the first tool call.
+    #
+    # Measured: without this the container binds its port in 2 seconds, passes
+    # its health check, and loads the model only when an agent first calls a
+    # tool -- so a missing extra, an unreadable corpus or a bad model revision
+    # surfaces mid-incident on a service that has been reporting healthy for
+    # hours. That is the exact shape of failure this project keeps hitting, and
+    # the reason `configure` refuses to fall back rather than raising.
+    #
+    # It also moves ~15 seconds of model load off the first query.
+    _retriever()
+
     served = "hybrid (BM25 + MiniLM, fused by RRF)" if semantic else "LEXICAL BASELINE ONLY"
     server = MCPServer(
         name=SERVER_NAME,
