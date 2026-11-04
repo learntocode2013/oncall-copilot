@@ -43,5 +43,8 @@ def test_rule_posts_to_the_incident_api_on_the_compose_network():
     assert "/etc/grafana/provisioning/alerting/oncall-copilot.yaml" not in compose
     assert "/oncall/oncall-copilot.yaml:ro" in compose
     assert "GF_PATHS_PROVISIONING=/tmp/grafana-provisioning" in compose
-    assert "cp /oncall/oncall-copilot.yaml /tmp/grafana-provisioning/alerting/oncall-copilot.yaml" in script
+    assert (
+        "cp /oncall/oncall-copilot.yaml /tmp/grafana-provisioning/alerting/oncall-copilot.yaml"
+        in script
+    )
     assert "exec /run.sh" in script
