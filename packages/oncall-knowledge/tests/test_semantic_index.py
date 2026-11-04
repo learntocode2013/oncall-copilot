@@ -52,9 +52,9 @@ def test_the_error_is_not_an_importerror(monkeypatch, documents):
 # --- the pin -------------------------------------------------------------
 
 
-def test_the_model_is_pinned():
+def test_the_model_id_is_the_one_the_design_names():
+    """The revision has its own test below; this one is only about the model."""
     assert SemanticIndex.MODEL_ID == "sentence-transformers/all-MiniLM-L6-v2"
-    assert SemanticIndex.MODEL_REVISION
 
 
 def test_the_revision_is_a_pinned_commit_sha():
@@ -67,7 +67,7 @@ def test_the_revision_is_a_pinned_commit_sha():
     """
     assert re.fullmatch(r"[0-9a-f]{40}", SemanticIndex.MODEL_REVISION), (
         "pin the commit SHA, obtainable once the extra is installed with:\n"
-        "  uv run python -c \"from huggingface_hub import model_info; "
+        '  uv run python -c "from huggingface_hub import model_info; '
         "print(model_info('sentence-transformers/all-MiniLM-L6-v2').sha)\""
     )
 
