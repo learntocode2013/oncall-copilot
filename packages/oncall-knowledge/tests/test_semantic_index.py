@@ -14,6 +14,7 @@ document has some similarity to every query -- so the semantic index always
 returns its top k. RRF consumes ranks, not scores, so the two feed it fine.
 """
 
+import re
 import sys
 
 import pytest
@@ -56,10 +57,19 @@ def test_the_model_is_pinned():
     assert SemanticIndex.MODEL_REVISION
 
 
-def test_the_revision_is_not_a_moving_reference():
-    """`main` would silently change the ruler between run A and run B -- the
-    same failure the query-set hash exists to catch, in a different costume."""
-    assert SemanticIndex.MODEL_REVISION not in {"main", "master", "latest", "HEAD", ""}
+def test_the_revision_is_a_pinned_commit_sha():
+    """`main` would silently change the ruler between run A and run B -- the same
+    failure the query-set hash exists to catch, in a different costume.
+
+    Requiring the 40-hex shape also rejects placeholders like "TODO" or "". It
+    cannot tell a real SHA from an invented one -- only loading the model can,
+    and an invalid revision fails loudly there, which is the actual guard.
+    """
+    assert re.fullmatch(r"[0-9a-f]{40}", SemanticIndex.MODEL_REVISION), (
+        "pin the commit SHA, obtainable once the extra is installed with:\n"
+        "  uv run python -c \"from huggingface_hub import model_info; "
+        "print(model_info('sentence-transformers/all-MiniLM-L6-v2').sha)\""
+    )
 
 
 # --- behaviour, once the extra is installed ------------------------------
