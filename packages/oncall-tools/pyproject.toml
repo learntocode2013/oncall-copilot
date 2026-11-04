@@ -1,0 +1,22 @@
+[project]
+name = "oncall-tools"
+version = "0.1.0"
+description = "P3 — the four MCP servers, hooks, the approval gate and guardrails."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "oncall-contracts",
+    # The runbooks server is a thin wrapper over oncall-knowledge's Retriever.
+    # See the ⚠ note in CONTRIBUTING.md: this import is the resolution of the
+    # contradiction where the package needing retrieval was forbidden it.
+    "oncall-knowledge",
+    "mcp>=1.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+oncall-contracts = { workspace = true }
+oncall-knowledge = { workspace = true }

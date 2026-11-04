@@ -31,9 +31,12 @@ lab               ◀──  nothing       (pages the service over HTTP; holds t
 `oncall-contracts` exists to break a cycle. If `IncidentState` lived in `oncall-graph`, then P4
 and P5 would both have to import P2's package, and the eval/tuning separation would collapse.
 
-### ⚠ Open: these rules currently contradict the architecture for retrieval
+### Resolved: retrieval reaches P2 through MCP, and the rules now say so
 
-**Decision needed from P2 and P3 jointly, before anyone writes `runbooks_kb`.**
+**Settled 2026-11-04 by P1, with P3 on leave. P3 and P2 should review on return.**
+
+The rules used to contradict the architecture in both directions, which is recorded below
+because the shape of the mistake is worth keeping.
 
 The architecture says P2 reaches retrieval through MCP: `oncall-graph` calls `load_tools()`,
 which talks to `mcp-runbooks` (`oncall_tools.servers.runbooks_kb`, port 8102 — *"Search runbooks
@@ -50,8 +53,8 @@ So the package that needs retrieval is forbidden it, and the package that should
 MCP tools is free to bypass them. `runbooks_kb` will fail the dependency guard on its first real
 line, and nothing currently stops P2 importing `oncall_knowledge.retrieval` directly instead.
 
-Proposed resolution — two changes that make the guard enforce the architecture instead of
-contradicting it:
+Both changes are now applied in `ALLOWED_IMPORTS`, and the guard enforces the architecture
+instead of contradicting it:
 
 1. **`oncall_tools` gains `oncall_knowledge`.** The MCP server becomes a thin wrapper over
    `Retriever`, which is what "retrieval.py is the only public surface" was for.
@@ -60,9 +63,15 @@ contradicting it:
    the comparison between them would then differ in retrieval as well as in orchestration, which
    is exactly what E1 exists to isolate.
 
-Neither change is P1's to make alone. Until it is settled, `oncall-knowledge` exposes
-`Retriever.build(documents, *, semantic, k0)` and `Retriever.retrieve(query, k) ->
-list[RetrievalResult]`, and does not care who calls it.
+Removing `oncall_knowledge` from `oncall_graph` broke nothing: checked before the change, no
+file under `packages/oncall-graph/` imported it.
+
+Neither change was P1's to make alone, and with P3 on leave P1 made both rather than leave the
+server unwritable. The mitigation is that they were applied **together**: on its own, adding
+`oncall_knowledge` to `oncall_tools` is a guard loosened to fit code, which `CLAUDE.md` rules
+out. Paired with the removal from `oncall_graph`, the net effect is a tighter rule set that
+matches the design. If P3 disagrees with the seam, the server is ~150 lines and the revert is
+one commit.
 
 ### The `mcp-runbooks` tool contract
 
