@@ -160,14 +160,28 @@ def test_main_rejects_an_unknown_config(tmp_path: Path):
         main(["--config", "Z", "--cases", "dev", "--out", str(tmp_path)])
 
 
-def test_config_b_records_the_pinned_model(tmp_path: Path):
-    """An unrecorded model is an unreproducible run."""
-    pytest.importorskip("sentence_transformers")
-    from oncall_knowledge.indexing.semantic import SemanticIndex
+def test_config_b_fails_loudly_until_the_hybrid_lands(tmp_path: Path):
+    """Config B is BM25 + MiniLM + RRF (design section 6), which Task 6 builds.
 
-    assert main(["--config", "B", "--cases", "dev", "--out", str(tmp_path)]) == 0
+    Running semantic-only and labelling it B would put two different meanings
+    behind one config id in artifacts/retrieval/, which is the records version
+    of a changed ruler -- and nothing would raise. A semantic-only run is a
+    diagnostic, not a configuration.
+    """
+    with pytest.raises(NotImplementedError, match="Task 6"):
+        main(["--config", "B", "--cases", "dev", "--out", str(tmp_path)])
 
-    record = json.loads(next(tmp_path.glob("B-*.json")).read_text())
 
-    assert record["model_id"] == SemanticIndex.MODEL_ID
-    assert record["model_revision"] == SemanticIndex.MODEL_REVISION
+def test_a_model_is_recorded_when_one_is_supplied(lexical_result):
+    """An unrecorded model is an unreproducible run. Task 6 passes these."""
+    record = build_record(
+        "B",
+        lexical_result,
+        query_set_name="dev",
+        n_documents=18,
+        model_id="sentence-transformers/all-MiniLM-L6-v2",
+        model_revision="1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+    )
+
+    assert record["model_id"] == "sentence-transformers/all-MiniLM-L6-v2"
+    assert record["model_revision"] == "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"

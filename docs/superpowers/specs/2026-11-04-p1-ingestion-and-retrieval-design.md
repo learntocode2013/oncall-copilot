@@ -248,13 +248,21 @@ packages/oncall-knowledge/src/oncall_knowledge/
 ├── validator.py       exists — corpus validation
 ├── ingestion.py       exists — discover + validate, root-pinned
 ├── indexing/
-│   ├── lexical.py     BM25 + the camelCase-aware tokenizer
+│   ├── text.py        tokenizer + index_text: the text BOTH halves index
+│   ├── lexical.py     BM25 (ours, see D7) + IndexEntry
 │   ├── semantic.py    embeddings (optional dependency)
 │   └── hybrid.py      RRF fusion
 ├── retrieval.py       the ONE interface the commander calls
-├── evaluation.py      Recall@k, MRR, per-query output
+├── evaluation.py      QueryCase, metrics, per-query output
+├── experiment.py      run a config, write the record, compare two
 └── inspection.py      CLI: show me what a query retrieves and why
 ```
+
+`indexing/text.py` was not in this list when the design was written and is the most important
+file in it: if the lexical and semantic halves ever index different text, config B changes two
+variables at once and its before/after number attributes nothing. `experiment.py` sits at the
+package top level, not under `indexing/`, because `indexing/` holds the interchangeable scorers
+and the runner is not one of them -- it is also the `python -m` entry point.
 
 `retrieval.py` is the only public surface. Everything under `indexing/` is internal and may be
 replaced — that is what makes D10 a deferral rather than a commitment.
