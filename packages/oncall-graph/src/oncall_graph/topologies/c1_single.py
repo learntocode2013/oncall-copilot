@@ -29,6 +29,7 @@ from ..planning.monitor import apply_replan
 from ..planning.plan import format_plan, validate_hypotheses, validate_plan
 from ..state import IncidentChannel, new_incident, transcript_lines
 from ..stubs import Shop, proposal_tools, read_tools, solo_run
+from ..trace import add_tracked, attach_trace
 
 SOLO_NAME = "solo"
 
@@ -204,19 +205,20 @@ class Solo:
         self.max_revisions = max_revisions
         self.checkpointer = checkpointer or InMemorySaver()
         self.agent = make_solo_agent(self.shop, model=model, tool_budget=tool_budget)
+        self.last_trace = None
         self.graph = self._compile()
 
     def _compile(self):
         graph = StateGraph(IncidentChannel)
-        graph.add_node("input_guard_stub", input_guard_stub)
-        graph.add_node("solo", self.investigate)
-        graph.add_node("propose_one_action", propose_one_action)
-        graph.add_node("approval", approval)
-        graph.add_node("execute_action", self.execute)
-        graph.add_node("verify", self.verify)
-        graph.add_node("rollback", self.rollback)
-        graph.add_node("replan", replan)
-        graph.add_node("stop", stop)
+        add_tracked(graph, "input_guard_stub", input_guard_stub)
+        add_tracked(graph, "solo", self.investigate)
+        add_tracked(graph, "propose_one_action", propose_one_action)
+        add_tracked(graph, "approval", approval)
+        add_tracked(graph, "execute_action", self.execute)
+        add_tracked(graph, "verify", self.verify)
+        add_tracked(graph, "rollback", self.rollback)
+        add_tracked(graph, "replan", replan)
+        add_tracked(graph, "stop", stop)
         graph.add_edge(START, "input_guard_stub")
         graph.add_edge("input_guard_stub", "solo")
         graph.add_edge("solo", "propose_one_action")
@@ -293,4 +295,5 @@ class Solo:
                 out = self.graph.invoke(payload, config, durability="sync")
             else:
                 out = self.graph.invoke(Command(resume=resume), config, durability="sync")
+        self.last_trace = attach_trace(measured, out, topology="c1_single", incident_id=incident_id)
         return out, measured
