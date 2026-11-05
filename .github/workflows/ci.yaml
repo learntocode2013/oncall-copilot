@@ -91,6 +91,28 @@ jobs:
       - run: uv sync --frozen
       - run: make eval-fixture
 
+  # Builds every shipped image and starts the ones that need no mounts.
+  #
+  # This job exists because its absence was load-bearing: mcp-runbooks shipped
+  # a Dockerfile that did not build, and then one that built but exited at
+  # startup, and all five other checks passed over both. No Python job can
+  # catch either -- the first is a build-context problem and the second only
+  # appears in a container.
+  #
+  # No path filter, on purpose. A path-filtered required check never reports
+  # on a PR that misses the filter, which leaves the PR pending forever; and
+  # the lockfile, the corpus and the server code can each break an image, so
+  # the filter would have to name most of the repo anyway. ~3 minutes.
+  #
+  # Docker and buildx come preinstalled on ubuntu-latest. No uv step: the
+  # images build their own dependencies, which is the point.
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: make images
+
 # DEFERRED JOBS — add each one in the same commit that makes it real, never
 # before. A job that is red from the day it lands teaches everyone to ignore
 # the pipeline.

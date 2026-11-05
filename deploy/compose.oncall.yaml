@@ -186,3 +186,39 @@ services:
       resources:
         limits:
           memory: 64M
+
+  # OUR SERVICE. Read-only runbook search, the MCP half of P1's retrieval layer.
+  # Written by P1 while P3 is on leave; oncall-tools is P3's package.
+  #
+  # Build context is ${ONCALL_ROOT}, not packages/oncall-tools/: uv resolves a
+  # workspace member against the ROOT pyproject.toml and uv.lock, so the
+  # Dockerfile needs both. See the path-resolution note at the top of this file
+  # for why it must be ${ONCALL_ROOT}-rooted rather than relative.
+  mcp-runbooks:
+    build:
+      context: ${ONCALL_ROOT:?set ONCALL_ROOT to the repo root}
+      dockerfile: packages/oncall-tools/Dockerfile
+    container_name: mcp-runbooks
+    ports:
+      - "8102:8102"
+    # A TCP probe, not an MCP call. It proves the port is bound and nothing
+    # more: MCP's streamable-http endpoint needs specific headers and a POST,
+    # so a GET-based check would report unhealthy on a working server. `sh` is
+    # dash in this image and cannot do /dev/tcp, so bash is invoked explicitly
+    # -- the same reason the recommendation patch above does.
+    #
+    # It will NOT catch a server that binds the port and then fails to answer.
+    # `make verify` makes a real HTTP request for that.
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8102'"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      # The retriever builds at startup -- ingest 18 runbooks, load an 80 MB
+      # model from the image, embed the corpus -- BEFORE the port is bound, so
+      # a healthy container means retrieval actually works. Measured: the port
+      # answered in 2s while the retriever was still lazy, which is why
+      # build_server now warms it eagerly. Keep start_period generous: an
+      # unhealthy verdict during model load would be wrong, not useful.
+      start_period: 60s
+    restart: unless-stopped

@@ -11,6 +11,7 @@ dependencies = [
     "oncall-graph",
     "oncall-lab",
     "oncall-service",
+    "oncall-tools",
 ]
 
 # `uv sync --extra NAME` resolves extras against THIS project, not against a
@@ -24,6 +25,19 @@ dependencies = [
 [project.optional-dependencies]
 semantic = ["oncall-knowledge[semantic]"]
 
+# torch's default PyPI wheel for Linux is the CUDA build: it hard-depends on
+# cuda-toolkit, cuda-bindings and 15 nvidia-* packages, which are GPU kernels
+# no container in this stack has and `all-MiniLM-L6-v2` over 18 documents never
+# touches. Measured: they are most of a 6.42 GB mcp-runbooks image.
+#
+# `explicit = true` means this index serves only the packages assigned to it
+# below -- nothing else in the tree silently starts resolving from
+# download.pytorch.org.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 [tool.uv.workspace]
 members = ["packages/*"]
 
@@ -34,6 +48,14 @@ oncall-knowledge = { workspace = true }
 oncall-graph = { workspace = true }
 oncall-lab = { workspace = true }
 oncall-service = { workspace = true }
+oncall-tools = { workspace = true }
+
+# Linux only, and the marker matters. macOS has no CUDA torch on PyPI, so the
+# dev machines that produced artifacts/retrieval/ were already running a
+# CPU-only build; pinning without the marker would send darwin to an index it
+# does not need, and pinning the wrong way round would change the torch
+# underneath the committed before/after numbers.
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
 
 [dependency-groups]
 dev = [

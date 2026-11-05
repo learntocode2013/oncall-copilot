@@ -3,6 +3,11 @@
 The short version lives in [README.md](README.md#how-to-contribute). This file is the reference
 for the rules CI enforces and the mechanics that trip people up.
 
+## Enforced by CI
+
+Six jobs: `lint`, `test`, `guards`, `lockfile`, `eval-fixture` and `images`. The first five run
+Python; `images` runs Docker and is described under *Containerising a server* below.
+
 ## Enforced by `make guards`
 
 These five tests encode graded requirements. The `guards` CI job is not allowed to fail.
@@ -31,9 +36,12 @@ lab               ◀──  nothing       (pages the service over HTTP; holds t
 `oncall-contracts` exists to break a cycle. If `IncidentState` lived in `oncall-graph`, then P4
 and P5 would both have to import P2's package, and the eval/tuning separation would collapse.
 
-### ⚠ Open: these rules currently contradict the architecture for retrieval
+### Resolved: retrieval reaches P2 through MCP, and the rules now say so
 
-**Decision needed from P2 and P3 jointly, before anyone writes `runbooks_kb`.**
+**Settled 2026-11-04 by P1, with P3 on leave. P3 and P2 should review on return.**
+
+The rules used to contradict the architecture in both directions, which is recorded below
+because the shape of the mistake is worth keeping.
 
 The architecture says P2 reaches retrieval through MCP: `oncall-graph` calls `load_tools()`,
 which talks to `mcp-runbooks` (`oncall_tools.servers.runbooks_kb`, port 8102 — *"Search runbooks
@@ -50,8 +58,8 @@ So the package that needs retrieval is forbidden it, and the package that should
 MCP tools is free to bypass them. `runbooks_kb` will fail the dependency guard on its first real
 line, and nothing currently stops P2 importing `oncall_knowledge.retrieval` directly instead.
 
-Proposed resolution — two changes that make the guard enforce the architecture instead of
-contradicting it:
+Both changes are now applied in `ALLOWED_IMPORTS`, and the guard enforces the architecture
+instead of contradicting it:
 
 1. **`oncall_tools` gains `oncall_knowledge`.** The MCP server becomes a thin wrapper over
    `Retriever`, which is what "retrieval.py is the only public surface" was for.
@@ -60,9 +68,15 @@ contradicting it:
    the comparison between them would then differ in retrieval as well as in orchestration, which
    is exactly what E1 exists to isolate.
 
-Neither change is P1's to make alone. Until it is settled, `oncall-knowledge` exposes
-`Retriever.build(documents, *, semantic, k0)` and `Retriever.retrieve(query, k) ->
-list[RetrievalResult]`, and does not care who calls it.
+Removing `oncall_knowledge` from `oncall_graph` broke nothing: checked before the change, no
+file under `packages/oncall-graph/` imported it.
+
+Neither change was P1's to make alone, and with P3 on leave P1 made both rather than leave the
+server unwritable. The mitigation is that they were applied **together**: on its own, adding
+`oncall_knowledge` to `oncall_tools` is a guard loosened to fit code, which `CLAUDE.md` rules
+out. Paired with the removal from `oncall_graph`, the net effect is a tighter rule set that
+matches the design. If P3 disagrees with the seam, the server is ~150 lines and the revert is
+one commit.
 
 ### The `mcp-runbooks` tool contract
 
@@ -184,6 +198,27 @@ either way and P2 never knows which transport is live.
 
 Ports: incident API `8000`, lab `8020`, MCP servers `8101`–`8104`. Do not use 8080, 8081, 8089, 8090, 8013,
 8016, 4000, 3000, 9090, 9200, 16686 or 4317 — the demo claims all of them.
+
+### Containerising a server: sync the member, not the root
+
+`uv sync` in a server's Dockerfile must pass `--package oncall-<name>`. Without it uv syncs the
+**root** project, which depends on all seven workspace members and therefore needs every
+member's source in the build context — so the image either carries packages the server never
+imports, or fails outright with `Distribution not found at file:///app/packages/oncall-eval`.
+That is how `mcp-runbooks` broke: it was written when only four members were real
+distributions, and PR #11 made three more.
+
+Extras resolve against whatever `--package` names, so a server needing `oncall-knowledge`'s
+`semantic` extra needs a forwarding entry of its own (`oncall-tools` has one). And once the venv
+exists, put it on `PATH` and stop using `uv run` — `uv run` re-targets the root project and
+fails the same way, at runtime, on every container start.
+
+The `images` CI job now builds all three images and starts the two that need no mounts
+(`mcp-runbooks` gets a real MCP session asserting it serves *hybrid* and not the baseline;
+`oncall-lab` is build-only because its runtime needs `eval/faults/manifest.yaml` mounted, which
+belongs to compose). Run it yourself with `make images` — it needs Docker, takes ~2 minutes, and
+is the only check that can catch an image that does not build or a container that binds its port
+without working. Before it existed, five green checks sat on top of both.
 
 **Write isolation is enforced in `permissions.py` and `hooks/pre_tool.py`, not by network
 topology.** In HTTP mode `mcp-ops` is just another container on the Compose network. Those two
