@@ -1,5 +1,5 @@
 # Delegates container lifecycle to deploy/; keeps Python tooling here.
-.PHONY: help bootstrap up stop down reset config preflight verify urls reload-rules test lint fix guards eval-fixture ui
+.PHONY: help bootstrap up stop down reset config preflight verify urls reload-rules test lint fix guards eval-fixture images ui
 
 help:
 	@$(MAKE) -C deploy help
@@ -8,6 +8,7 @@ help:
 	@echo "fix        apply the fixes lint reports, then re-run lint"
 	@echo "guards     just the structural guards"
 	@echo "eval-fixture  replay development fixtures; no model calls or fault injection"
+	@echo "images     build every shipped image, then start the ones that need no mounts"
 	@echo "ui         run only the incident API/UI on the host for debugging"
 
 bootstrap up stop down reset config preflight verify urls reload-rules:
@@ -42,6 +43,13 @@ guards:
 # Fixture replay only. The name eval-gate stays unused until a check grades a live run.
 eval-fixture:
 	uv run python -m oncall_eval.harness --mock --cases eval/dev --fixtures eval/fixtures --group-by complexity --fail-under 1.0
+
+# Catches what no other target can: an image that does not build, and a
+# container that binds its port without working. Needs Docker, so it is not in
+# the default local loop -- but it is a CI job, and `make bootstrap` is the
+# thing it protects.
+images:
+	./scripts/check-images.sh
 
 ui:
 	uv run --env-file .env python -m oncall_service

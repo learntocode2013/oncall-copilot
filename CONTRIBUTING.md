@@ -3,6 +3,11 @@
 The short version lives in [README.md](README.md#how-to-contribute). This file is the reference
 for the rules CI enforces and the mechanics that trip people up.
 
+## Enforced by CI
+
+Six jobs: `lint`, `test`, `guards`, `lockfile`, `eval-fixture` and `images`. The first five run
+Python; `images` runs Docker and is described under *Containerising a server* below.
+
 ## Enforced by `make guards`
 
 These five tests encode graded requirements. The `guards` CI job is not allowed to fail.
@@ -208,8 +213,12 @@ Extras resolve against whatever `--package` names, so a server needing `oncall-k
 exists, put it on `PATH` and stop using `uv run` — `uv run` re-targets the root project and
 fails the same way, at runtime, on every container start.
 
-**Nothing in CI builds any image.** All five checks pass over a container that cannot start, so
-build and run a server's image yourself before opening the PR.
+The `images` CI job now builds all three images and starts the two that need no mounts
+(`mcp-runbooks` gets a real MCP session asserting it serves *hybrid* and not the baseline;
+`oncall-lab` is build-only because its runtime needs `eval/faults/manifest.yaml` mounted, which
+belongs to compose). Run it yourself with `make images` — it needs Docker, takes ~2 minutes, and
+is the only check that can catch an image that does not build or a container that binds its port
+without working. Before it existed, five green checks sat on top of both.
 
 **Write isolation is enforced in `permissions.py` and `hooks/pre_tool.py`, not by network
 topology.** In HTTP mode `mcp-ops` is just another container on the Compose network. Those two
