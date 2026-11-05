@@ -194,6 +194,23 @@ either way and P2 never knows which transport is live.
 Ports: incident API `8000`, lab `8020`, MCP servers `8101`–`8104`. Do not use 8080, 8081, 8089, 8090, 8013,
 8016, 4000, 3000, 9090, 9200, 16686 or 4317 — the demo claims all of them.
 
+### Containerising a server: sync the member, not the root
+
+`uv sync` in a server's Dockerfile must pass `--package oncall-<name>`. Without it uv syncs the
+**root** project, which depends on all seven workspace members and therefore needs every
+member's source in the build context — so the image either carries packages the server never
+imports, or fails outright with `Distribution not found at file:///app/packages/oncall-eval`.
+That is how `mcp-runbooks` broke: it was written when only four members were real
+distributions, and PR #11 made three more.
+
+Extras resolve against whatever `--package` names, so a server needing `oncall-knowledge`'s
+`semantic` extra needs a forwarding entry of its own (`oncall-tools` has one). And once the venv
+exists, put it on `PATH` and stop using `uv run` — `uv run` re-targets the root project and
+fails the same way, at runtime, on every container start.
+
+**Nothing in CI builds any image.** All five checks pass over a container that cannot start, so
+build and run a server's image yourself before opening the PR.
+
 **Write isolation is enforced in `permissions.py` and `hooks/pre_tool.py`, not by network
 topology.** In HTTP mode `mcp-ops` is just another container on the Compose network. Those two
 files carry a graded requirement, and there must be a test asserting no diagnosis agent's

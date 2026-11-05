@@ -13,6 +13,12 @@ dependencies = [
 semantic = [
     "numpy>=2.0",
     "sentence-transformers>=5.0",
+    # Declared directly, though sentence-transformers already requires it,
+    # because uv applies `tool.uv.sources` only to DIRECT dependencies: the
+    # CPU-index pin in the workspace root is a silent no-op while torch is
+    # transitive. Verified -- `uv lock` left all 15 nvidia-* packages in place
+    # until this line existed.
+    "torch>=2.5",
 ]
 
 [build-system]
