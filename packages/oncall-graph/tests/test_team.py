@@ -6,8 +6,9 @@ import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 from oncall_graph.briefs import assign_severity, render_brief, split_budget
 from oncall_graph.config import COMMANDER_MODEL, SPECIALIST_MODEL
-from oncall_graph.handoffs import decide_commander, partition_lessons
+from oncall_graph.handoffs import decide_commander, diagnosis_from_exchanges, partition_lessons
 from oncall_graph.meter import reset_log
+from oncall_graph.planning.monitor import monitor
 from oncall_graph.planning.plan import READ_TOOLS
 from oncall_graph.state import new_incident
 from oncall_graph.stubs import TELEMETRY_TOOLS, Shop, telemetry_tools
@@ -271,6 +272,36 @@ def test_diagnosis_allowances_sum_to_the_incident_budget():
     assert one[0].arg["services"] == ["payment", "checkout"]
     assert one[0].arg["tool_budget_slice"] == 10
     assert "service" not in one[0].arg
+
+
+def test_a_trace_list_without_a_verdict_is_not_a_denial():
+    """Jaeger returns trace ids. That is not a local-cause judgement."""
+    reports, hypotheses = diagnosis_from_exchanges(
+        ["payment"],
+        [
+            (
+                "traces",
+                {"service": "payment"},
+                {"service": "payment", "count": 2, "trace_ids": ["abc"]},
+            )
+        ],
+        1,
+    )
+    assert reports == [{"service": "payment", "tool_calls": 1}]
+    assert hypotheses == []
+    state = new_incident(
+        alert=PAYMENT_ALERT,
+        hypotheses=[
+            {
+                "service": "payment",
+                "statement": "payment is the root cause",
+                "evidence_refs": ["alert"],
+                "confidence": 0.9,
+            }
+        ],
+        diagnosis_reports=reports,
+    )
+    assert monitor(state)["route"] == "ready"
 
 
 def test_diagnosis_tools_are_read_only():

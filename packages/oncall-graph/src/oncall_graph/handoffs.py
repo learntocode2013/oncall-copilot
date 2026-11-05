@@ -174,9 +174,11 @@ def diagnosis_from_exchanges(services, exchanges, tool_calls: int) -> tuple[list
     """One report per suspect, plus a hypothesis only when a trace names a fault.
 
     Confidence stays under the commander's opening hypothesis. A checkout copy
-    that finds no local cause returns a denial and no statement. ``tool_calls``
-    is split across the suspects this agent actually traced; one suspect keeps
-    the whole count. The slices of a single agent sum to that agent's calls.
+    that finds no local cause returns a denial and no statement. A trace that
+    never states ``local_cause`` — Jaeger only returns trace ids — is not a
+    denial. ``tool_calls`` is split across the suspects this agent actually
+    traced; one suspect keeps the whole count. Those slices sum to that
+    agent's calls.
     """
     services = [service for service in services if service]
     if not services:
@@ -191,12 +193,12 @@ def diagnosis_from_exchanges(services, exchanges, tool_calls: int) -> tuple[list
     hypotheses = []
     for service in services:
         trace = _trace_for(service, exchanges) or {}
-        local = bool(trace.get("local_cause"))
         report = {
             "service": service,
-            "local_cause": local,
             "tool_calls": int(counts.get(service) or 0),
         }
+        if "local_cause" in trace:
+            report["local_cause"] = bool(trace["local_cause"])
         reports.append(report)
         fault = trace.get("fault")
         if fault:
