@@ -27,14 +27,28 @@ _MAX_TRACES = 20
 
 
 class AstronomyShop:
-    """Prometheus, Jaeger, and OpenSearch on one lab host."""
+    """Prometheus, Jaeger, and OpenSearch telemetry endpoints."""
 
-    def __init__(self, host: str | None = None, minutes: int = 5):
+    def __init__(
+        self,
+        host: str | None = None,
+        minutes: int = 5,
+        *,
+        prometheus_url: str | None = None,
+        jaeger_url: str | None = None,
+        opensearch_url: str | None = None,
+    ):
         self.minutes = minutes
         chosen = host or os.environ.get("ASTRONOMY_SHOP_HOST") or DEFAULT_HOST
-        self.prometheus = f"http://{chosen}:9090"
-        self.jaeger = f"http://{chosen}:32797"
-        self.opensearch = f"http://{chosen}:32794"
+        self.prometheus = (
+            prometheus_url or os.environ.get("PROMETHEUS_URL") or f"http://{chosen}:9090"
+        ).rstrip("/")
+        self.jaeger = (
+            jaeger_url or os.environ.get("JAEGER_URL") or f"http://{chosen}:32797/jaeger/ui"
+        ).rstrip("/")
+        self.opensearch = (
+            opensearch_url or os.environ.get("OPENSEARCH_URL") or f"http://{chosen}:32794"
+        ).rstrip("/")
 
     def _window(self):
         end = datetime.now(UTC).replace(microsecond=0)
@@ -151,7 +165,7 @@ class AstronomyShop:
                 "query.searchDepth": search_depth,
             }
         )
-        payload = self._get(f"{self.jaeger}/jaeger/ui/api/v3/traces?{encoded}")
+        payload = self._get(f"{self.jaeger}/api/v3/traces?{encoded}")
         if payload.get("error") and not isinstance(payload.get("data"), (dict, list)):
             say(f"      astronomy shop traces error: {payload['error']}")
             return {"service": service, "error": str(payload["error"])}

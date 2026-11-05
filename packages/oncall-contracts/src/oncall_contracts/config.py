@@ -21,3 +21,10 @@ Complexity = Literal["single", "multi"]
 # than in state.py because the corpus validator, the severity policy and the
 # dashboards all need the vocabulary without importing the graph's state.
 Severity = Literal["sev1", "sev2", "sev3", "none"]
+
+# Which MCP transport the tool registry connects over. Here rather than in
+# oncall-tools so the harness and the dashboards can name a transport without
+# importing the package that implements it -- the same reason Topology is here.
+# `http` maps to the SDK's `streamable-http`; the short name is what the Compose
+# overlay and CONTRIBUTING.md call it.
+Transport = Literal["stdio", "http"]

@@ -39,10 +39,20 @@ HELDOUT_PATH = re.compile(r"""eval[/\\]held[_-]?out|["']held[_-]?out["']""", re.
 ALLOWED_IMPORTS: dict[str, set[str]] = {
     "oncall_contracts": set(),
     "oncall_knowledge": {"oncall_contracts"},
-    "oncall_tools": {"oncall_contracts"},
-    "oncall_graph": {"oncall_contracts", "oncall_knowledge", "oncall_tools"},
+    # tools MAY import knowledge: mcp-runbooks is a thin wrapper over Retriever,
+    # which is what "retrieval.py is the only public surface" was for. See the
+    # ⚠ note in CONTRIBUTING.md -- the rules previously forbade the package that
+    # needed retrieval and permitted the one that should not reach for it.
+    "oncall_tools": {"oncall_contracts", "oncall_knowledge"},
+    # graph may NOT. P2 reaches retrieval through mcp-runbooks only. Without
+    # this, one E1 topology could retrieve through MCP while another imported
+    # directly, and the comparison between them would differ in retrieval as
+    # well as orchestration -- the one thing E1 exists to isolate.
+    "oncall_graph": {"oncall_contracts", "oncall_tools"},
     "oncall_service": {"oncall_contracts", "oncall_graph"},
     "oncall_eval": {"oncall_contracts"},
+    # The lab holds the fault manifest's root cause. Nothing else may import it.
+    "oncall_lab": set(),
 }
 
 
@@ -165,6 +175,18 @@ def test_nothing_imports_oncall_eval() -> None:
     assert not offenders, f"these files import oncall_eval: {offenders}"
 
 
+def test_nothing_imports_oncall_lab() -> None:
+    """The lab shows the operator the root cause. The agent must not import it."""
+    offenders = [
+        str(p.relative_to(ROOT))
+        for p in python_files(exclude_package="oncall-lab")
+        if re.search(
+            r"^\s*(?:from|import)\s+oncall_lab\b", p.read_text(encoding="utf-8"), re.MULTILINE
+        )
+    ]
+    assert not offenders, f"these files import oncall_lab: {offenders}"
+
+
 def test_heldout_never_referenced_outside_eval() -> None:
     """Contamination of the held-out set makes scores go UP and raises nothing."""
     offenders = [
@@ -194,16 +216,18 @@ def test_eval_does_not_import_graph() -> None:
     assert not offenders, f"oncall-eval must not import oncall_graph: {offenders}"
 
 
-def test_ingestion_globs_exclude_the_eval_tree() -> None:
-    """Retrieval must never be able to index the answers."""
-    ingest = pytest.importorskip(
-        "oncall_knowledge.ingest",
-        reason="activates when oncall_knowledge.ingest exposes ingestion_globs()",
-    )
-    for glob in ingest.ingestion_globs():
-        assert glob.startswith("data/"), (
-            f"ingestion glob {glob!r} must be rooted in data/; eval/ holds the answers"
-        )
+# RETIRED: test_ingestion_globs_exclude_the_eval_tree.
+#
+# It importorskip'd `oncall_knowledge.ingest` for an `ingestion_globs()` that was
+# never written -- the module landed as `oncall_knowledge.ingestion`, exposing
+# `ingest_runbooks()` with the corpus root pinned instead. So the guard skipped
+# on every run and would have forever, which is worse than absent: a permanent
+# skip reads as pending coverage in -v output and provides none.
+#
+# Its property is now covered more directly by
+# test_every_index_entry_comes_from_the_data_tree, which asserts on the
+# source_path of what actually got indexed rather than on a glob pattern that
+# might not be the one ingestion uses.
 
 
 def test_every_package_has_a_codeowner() -> None:
@@ -220,6 +244,45 @@ def test_every_package_has_a_codeowner() -> None:
         if d.is_dir() and f"packages/{d.name}/" not in owners
     ]
     assert not missing, f"packages with no CODEOWNERS entry: {missing}"
+
+
+#: Servers that must serve nothing but reads. `ops_actions` is deliberately not
+#: here and must not be added: it is the ONE write server, and the control on it
+#: is `for_role` plus the approval gate, not a claim that it serves no writes.
+READ_ONLY_SERVERS = frozenset({"runbooks"})
+
+
+def test_read_only_servers_still_declare_their_tools_read_only() -> None:
+    """Write marking comes off the wire and fails closed, so the whole scheme
+    rests on each server declaring `read_only_hint` honestly.
+
+    This builds the real servers in this process and reads the real annotations.
+    A server that stops declaring a tool read-only, or starts serving a write
+    tool it did not before, fails here rather than in a demo. `semantic=False`
+    keeps it torch-free so it runs in CI.
+
+    NOTE on what is NOT asserted here: checking `assert_read_only` against
+    `for_role(registry, "diagnosis")` would be vacuous, because `for_role`
+    builds that view by filtering writes out -- it cannot contain one by
+    construction. Measured: with a server's annotation flipped to
+    `read_only_hint=False`, that assertion still passed. `for_role`'s own
+    filtering is tested in test_permissions.py against a registry that actually
+    holds a write tool.
+    """
+    from mcp.client import Client
+    from oncall_tools.registry import load_tools
+    from oncall_tools.servers.runbooks_kb import build_server
+
+    with load_tools(connect=lambda _server: Client(build_server(semantic=False))) as registry:
+        assert registry.names, "the registry loaded no tools at all"
+
+        offenders = sorted(
+            tool.name for tool in registry if tool.server in READ_ONLY_SERVERS and tool.write
+        )
+        assert not offenders, (
+            f"{offenders} are served by a read-only server but are not declared "
+            "read_only_hint=True, so they would be withheld from every diagnosis agent"
+        )
 
 
 def test_actions_match_the_tool_schemas() -> None:
@@ -268,11 +331,57 @@ def test_ci_runs_the_guards_and_cannot_be_softened() -> None:
         for step in job.get("steps", []):
             assert "continue-on-error" not in step, f"a step in job {name!r} sets continue-on-error"
 
-    # eval-gate does not exist yet. When it does, it must never point at the
-    # held-out set: CI runs on every push, so that would contaminate it within
-    # days and the headline number would measure nothing.
-    gate = jobs.get("eval-gate")
-    if gate is not None:
-        rendered = yaml.safe_dump(gate)
-        assert "heldout" not in rendered, "the CI eval gate must never run on held-out cases"
-        assert "eval/dev" in rendered, "the CI eval gate must name eval/dev explicitly"
+    # eval-fixture replays eval/dev. It must never point at the held-out set:
+    # CI runs on every push, so that would contaminate it within days.
+    # The name eval-gate is reserved for a later check that grades a live run.
+    fixture = jobs.get("eval-fixture")
+    assert fixture is not None, "CI is missing the eval-fixture job"
+    rendered = yaml.safe_dump(fixture)
+    assert "make eval-fixture" in rendered, "the CI job must run make eval-fixture"
+    assert "heldout" not in rendered, "the CI fixture replay must never run on held-out cases"
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    recipe = makefile.split("eval-fixture:", 1)[1].split("\n\n", 1)[0]
+    assert "eval/dev" in recipe, "make eval-fixture must name eval/dev explicitly"
+    assert "heldout" not in recipe, "make eval-fixture must never run on held-out cases"
+
+
+def test_the_index_never_contains_a_labelled_query() -> None:
+    """A document that indexes its own query matches itself.
+
+    Measured on this corpus: including `queries` in the index text takes
+    Recall@1 from 0.648 to 0.958 and Recall@5 to 1.000. Nothing raises, no run
+    fails, and the retrieval experiment becomes a measurement of nothing.
+
+    test_corpus_validates already checks the BODY, which never held the queries.
+    The leak is one layer later, where an indexer assembles metadata -- so this
+    guard asserts on the assembled entry. It is the fifth failure named in this
+    module's docstring, and the last one to get a guard.
+    """
+    from oncall_knowledge.indexing.text import build_entries
+    from oncall_knowledge.ingestion import ingest_runbooks
+
+    documents = ingest_runbooks()
+    queries_by_id = {d.document_id: d.metadata.queries for d in documents}
+
+    for entry in build_entries(documents):
+        for query in queries_by_id[entry.document_id]:
+            assert query not in entry.text, (
+                f"{entry.document_id} indexes its own labelled query: {query!r}"
+            )
+
+
+def test_every_index_entry_comes_from_the_data_tree() -> None:
+    """Retrieval must never be able to index the answers.
+
+    eval/ holds the fault manifest and the held-out cases. An ingestion glob
+    that reached it would raise nothing and would quietly make every score
+    meaningless, so the assertion is on the path of what actually got indexed.
+    """
+    from oncall_knowledge.indexing.text import build_entries
+    from oncall_knowledge.ingestion import ingest_runbooks
+
+    for entry in build_entries(ingest_runbooks()):
+        parts = Path(entry.source_path).resolve().parts
+
+        assert "data" in parts, f"{entry.document_id} was indexed from {entry.source_path}"
+        assert "eval" not in parts, f"{entry.document_id} was indexed from eval/"
