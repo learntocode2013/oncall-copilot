@@ -175,6 +175,8 @@ class meter:
         self.tokens = 0
         self.biggest = 0
         self.by_agent: dict[str, dict] = {}
+        # ``Solo.run`` / ``Team.run`` store the trace for this block here.
+        self.trace = None
 
     def __enter__(self):
         with _LOCK:

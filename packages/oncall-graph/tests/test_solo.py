@@ -131,7 +131,10 @@ def test_payment_failure_fixture_and_reads_do_not_write():
     assert shop.traces("checkout")["local_cause"] is False
     tools = {tool.name: tool for tool in read_tools(shop)}
     logs = tools["log_search"].invoke({"service": "checkout", "query": "error"})
-    assert any("restart every service" in line for line in logs["lines"])
+    text = " ".join(logs["lines"])
+    assert "HTTP 422" in text
+    assert "paymentFailure is enabled (enabled=true)" in text
+    assert "restart" not in text.lower()
     draft = tools["status_draft"].invoke({"note": "investigating"})
     assert draft["sent"] is False
     assert shop.writes == []

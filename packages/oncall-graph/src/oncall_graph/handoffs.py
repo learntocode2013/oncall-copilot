@@ -170,6 +170,49 @@ def _trace_for(service: str, exchanges) -> dict | None:
     return found
 
 
+def diagnosis_plan_text(plan, hypotheses, services, proposed_action=None) -> str:
+    """Plan text for one diagnosis brief.
+
+    The commander opens by tracing the alert service. A payment copy shown that
+    step calls ``traces`` on checkout and records no payment verdict. This keeps
+    the other reads, names ``traces`` for the services this copy was given, and
+    leaves hypotheses about any other service off the brief.
+    """
+    assigned: list[str] = []
+    for service in services or []:
+        name = str(service or "").strip()
+        if name and name not in assigned:
+            assigned.append(name)
+    steps: list[dict] = []
+    traces_written = False
+    for step in (plan or {}).get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        tool = step.get("tool")
+        args = step.get("args") if isinstance(step.get("args"), dict) else {}
+        if tool == "traces":
+            if traces_written:
+                continue
+            traces_written = True
+            if assigned:
+                steps.extend(
+                    {"tool": "traces", "args": {"service": service}} for service in assigned
+                )
+            else:
+                steps.append({"tool": "traces", "args": dict(args)})
+            continue
+        steps.append({"tool": tool, "args": dict(args)})
+    if assigned and not traces_written:
+        steps.extend({"tool": "traces", "args": {"service": service}} for service in assigned)
+    relevant = [
+        item
+        for item in hypotheses or []
+        if isinstance(item, dict) and (not assigned or str(item.get("service") or "") in assigned)
+    ]
+    shown = {"stage": (plan or {}).get("stage") or "hypotheses", "steps": steps}
+    return format_plan(shown, relevant, proposed_action)
+
+
 def diagnosis_from_exchanges(services, exchanges, tool_calls: int) -> tuple[list[dict], list[dict]]:
     """One report per suspect, plus a hypothesis only when a trace names a fault.
 

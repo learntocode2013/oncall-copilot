@@ -187,7 +187,7 @@ No calls left: scope is the alert service alone, no shop read runs, and the tran
 
 The slice is `budget // n` of the configured incident budget, not of the calls still left after triage. The remainder goes to the first copy. The slices sum to that configured budget. A copy with allowance `0` writes `{service, local_cause: false, tool_calls: 0}` and does not call the model. That `false` is a denial.
 
-Each brief starts with `Agent: <name>` and contains the alert summary, the plan text, the service or the suspect list, the severity, and the allowance. It does not contain the transcript or another copy's tool results.
+Each brief starts with `Agent: <name>` and contains the alert summary, the plan text, the service or the suspect list, the severity, and the allowance. It does not contain the transcript or another copy's tool results. The channel plan still traces the alert service. The copy's plan text retargets that `traces` step to the service it was assigned, and omits hypotheses for any other service.
 
 Code then reads the tool messages. One report per suspect. `local_cause` is stored only when the trace result included that key. A trace that only lists ids is not a denial. A trace with `local_cause: false` is a denial and adds no hypothesis. A trace that names a `fault` appends a hypothesis at confidence `0.4`. The statement is `{fault} flag` when the name ends in `Failure`.
 

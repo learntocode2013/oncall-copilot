@@ -6,7 +6,13 @@ import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 from oncall_graph.briefs import assign_severity, render_brief, split_budget
 from oncall_graph.config import COMMANDER_MODEL, SPECIALIST_MODEL
-from oncall_graph.handoffs import decide_commander, diagnosis_from_exchanges, partition_lessons
+from oncall_graph.handoffs import (
+    decide_commander,
+    diagnosis_from_exchanges,
+    diagnosis_plan_text,
+    partition_lessons,
+    partition_passages,
+)
 from oncall_graph.meter import reset_log
 from oncall_graph.planning.monitor import monitor
 from oncall_graph.planning.plan import READ_TOOLS
@@ -213,6 +219,23 @@ def test_severity_comes_from_the_policy_not_a_label():
     assert assign_severity(0.2, purchase_path=False) == "sev3"
 
 
+def test_payment_service_failed_has_its_own_runbook_passage():
+    passages = Shop().search_runbooks("payment service failed")["passages"]
+    kept, dropped = partition_passages(
+        passages, service="payment", symptom="payment service failed"
+    )
+    assert [item["id"] for item in kept] == ["rb-payment-service-failed"]
+    assert kept[0]["fix"] == "set_flag paymentFailure enabled false"
+    assert [item["id"] for item in dropped] == ["rb-payment-failure"]
+    checkout_kept, checkout_dropped = partition_passages(
+        passages,
+        service="payment",
+        symptom="checkout error rate above 5% for five minutes",
+    )
+    assert [item["id"] for item in checkout_kept] == ["rb-payment-failure"]
+    assert [item["id"] for item in checkout_dropped] == ["rb-payment-service-failed"]
+
+
 def test_lessons_with_the_wrong_preconditions_are_dropped():
     kept, dropped = partition_lessons(
         LESSONS, service="payment", symptom="checkout error rate above 5% for five minutes"
@@ -304,6 +327,35 @@ def test_a_trace_list_without_a_verdict_is_not_a_denial():
     assert monitor(state)["route"] == "ready"
 
 
+def test_a_diagnosis_brief_traces_the_assigned_service():
+    """The opening plan traces checkout. The payment copy is told to trace payment."""
+    opening = decide_commander(new_incident(alert=ALERT))
+    state = new_incident(
+        alert=ALERT,
+        tool_budget=10,
+        plan=opening["plan"],
+        hypotheses=opening["hypotheses"],
+    )
+    state["scope"] = {"services": ["payment", "checkout"]}
+    sends = Team(model=TeamModel(), tool_budget=10).route_diagnosis(state)
+    plans = {send.arg["service"]: send.arg["plan_text"] for send in sends}
+    assert "traces {'service': 'payment'}" in plans["payment"]
+    assert "traces {'service': 'checkout'}" not in plans["payment"]
+    assert "checkout is the root cause" not in plans["payment"]
+    assert "checkout_error_rate" in plans["payment"]
+    assert "traces {'service': 'checkout'}" in plans["checkout"]
+    assert "traces {'service': 'payment'}" not in plans["checkout"]
+    assert "checkout is the root cause" in plans["checkout"]
+
+    one = Team(model=TeamModel(), tool_budget=10, parallel_diagnosis=False).route_diagnosis(state)
+    text = one[0].arg["plan_text"]
+    assert "traces {'service': 'payment'}" in text
+    assert "traces {'service': 'checkout'}" in text
+    assert (
+        diagnosis_plan_text(opening["plan"], opening["hypotheses"], ["payment"]) == plans["payment"]
+    )
+
+
 def test_diagnosis_tools_are_read_only():
     names = [tool.name for tool in telemetry_tools(Shop())]
     assert names == list(TELEMETRY_TOOLS)
@@ -358,6 +410,9 @@ def test_checkout_alert_replans_then_proposes_the_flag():
     payment_prompts = [prompt for prompt in model.prompts if "Service: payment" in prompt]
     checkout_prompts = [prompt for prompt in model.prompts if "Service: checkout" in prompt]
     assert payment_prompts and checkout_prompts
+    assert all("traces {'service': 'payment'}" in prompt for prompt in payment_prompts)
+    assert all("traces {'service': 'checkout'}" not in prompt for prompt in payment_prompts)
+    assert all("traces {'service': 'checkout'}" in prompt for prompt in checkout_prompts)
     assert all("no local cause" not in prompt for prompt in payment_prompts)
     assert all("User-Agent" not in prompt for prompt in payment_prompts)
     assert all("span attribute paymentFailure" not in prompt for prompt in checkout_prompts)

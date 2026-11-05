@@ -75,6 +75,9 @@ class IncidentChannel(TypedDict):
     status: str
     meter_rows: Annotated[list[dict], operator.add]
     tool_calls: int
+    # Node names in visit order. Each node appends its own name, so a loop
+    # shows the same name again instead of wiping the earlier visits.
+    graph_path: Annotated[list[str], operator.add]
 
 
 def transcript_lines(kind: str, *texts: str) -> list[TranscriptEntry]:
@@ -134,6 +137,7 @@ def new_incident(
         "status": "RUNNING",
         "meter_rows": [],
         "tool_calls": 0,
+        "graph_path": [],
     }
     state.update(overrides)
     if "stage" in overrides and isinstance(state.get("plan"), dict):
