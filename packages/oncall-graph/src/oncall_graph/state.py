@@ -63,12 +63,21 @@ class IncidentChannel(TypedDict):
     max_revisions: int
     tool_budget: int
     diagnosis_reports: Annotated[list[DiagnosisReport], operator.add]
+    # How many diagnosis tool calls are already included in ``tool_calls``.
+    # Parallel copies cannot each write ``tool_calls``; the tally adds the delta.
+    diagnosis_calls_accounted: int
+    # Set after a failed verification so the next monitor pass does not roll
+    # back again, and so the commander does not repeat the same runbook.
+    reinvestigate: bool
     pending_rollback: dict
 
     # The service reads these. They are not on the shared incident.
     status: str
     meter_rows: Annotated[list[dict], operator.add]
     tool_calls: int
+    # Node names in visit order. Each node appends its own name, so a loop
+    # shows the same name again instead of wiping the earlier visits.
+    graph_path: Annotated[list[str], operator.add]
 
 
 def transcript_lines(kind: str, *texts: str) -> list[TranscriptEntry]:
@@ -122,10 +131,13 @@ def new_incident(
         "max_revisions": max_revisions,
         "tool_budget": tool_budget,
         "diagnosis_reports": [],
+        "diagnosis_calls_accounted": 0,
+        "reinvestigate": False,
         "pending_rollback": {},
         "status": "RUNNING",
         "meter_rows": [],
         "tool_calls": 0,
+        "graph_path": [],
     }
     state.update(overrides)
     if "stage" in overrides and isinstance(state.get("plan"), dict):

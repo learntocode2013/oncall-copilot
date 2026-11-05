@@ -40,7 +40,14 @@ def merge(state, update):
     """Apply one node update the way the reducers will."""
     merged = dict(state)
     for key, value in update.items():
-        if key in ("transcript", "meter_rows", "diagnosis_reports", "hypotheses", "evidence"):
+        if key in (
+            "transcript",
+            "meter_rows",
+            "diagnosis_reports",
+            "hypotheses",
+            "evidence",
+            "graph_path",
+        ):
             merged[key] = list(state.get(key) or []) + list(value or [])
         else:
             merged[key] = value
@@ -338,10 +345,13 @@ def test_graph_channel_uses_the_contract_fields_and_keeps_its_own_name():
         "max_revisions",
         "tool_budget",
         "diagnosis_reports",
+        "diagnosis_calls_accounted",
+        "reinvestigate",
         "pending_rollback",
         "status",
         "meter_rows",
         "tool_calls",
+        "graph_path",
     ):
         assert field in IncidentChannel.__annotations__
         assert field not in ContractState.__annotations__

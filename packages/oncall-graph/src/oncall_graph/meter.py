@@ -111,6 +111,21 @@ def record(
     return row
 
 
+def rows_since(start, agent=None) -> list[dict]:
+    """Copy rows appended after ``start``. Pass ``agent`` to keep one specialist."""
+    with _LOCK:
+        snapshot = list(LOG[start:])
+    rows = []
+    for row in snapshot:
+        if agent is not None and row.get("agent") != agent:
+            continue
+        copied = dict(row)
+        copied["tools_invoked"] = list(row.get("tools_invoked") or [])
+        copied["tools_available"] = list(row.get("tools_available") or [])
+        rows.append(copied)
+    return rows
+
+
 def by_agent(rows) -> dict:
     """Calls, tool counts, largest prompt, tokens, and seconds for each agent."""
     out: dict[str, dict] = {}
@@ -160,6 +175,8 @@ class meter:
         self.tokens = 0
         self.biggest = 0
         self.by_agent: dict[str, dict] = {}
+        # ``Solo.run`` / ``Team.run`` store the trace for this block here.
+        self.trace = None
 
     def __enter__(self):
         with _LOCK:

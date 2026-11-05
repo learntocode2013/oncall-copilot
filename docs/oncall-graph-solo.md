@@ -10,7 +10,7 @@ This page is the order of events after an alert, for the solo baseline. `oncall-
 
 C1 writes `oncall_graph.state.IncidentChannel`. That channel carries the nine fields of `oncall_contracts.state.IncidentState` in the contract shape, plus graph-only bookkeeping. The first column is the shared field the step writes. The second column is the private key the step writes.
 
-The monitor is shared by C1 and C2. It is not a team-only graph. The compiled solo edges do not include the monitor node. After a failed verification, solo calls `apply_replan` from the monitor module. The other monitor edges — a timed-out tool, a failed tool, and evidence that contradicts the top hypothesis — run on `build_monitor_graph()` and are not on the solo path yet. `c2_team` is not implemented.
+The monitor is shared by C1 and C2. It is not a team-only graph. The compiled solo edges do not include the monitor node. After a failed verification, solo calls `apply_replan` from the monitor module. The other monitor edges — a timed-out tool, a failed tool, and evidence that contradicts the top hypothesis — run on `build_monitor_graph()` and are not on the solo path yet. The team graph compiles those edges. See `docs/oncall-graph-team.md`.
 
 ## Compiled edges
 
