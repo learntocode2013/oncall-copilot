@@ -10,7 +10,7 @@ Python; `images` runs Docker and is described under *Containerising a server* be
 
 ## Enforced by `make guards`
 
-These five tests encode graded requirements. The `guards` CI job is not allowed to fail.
+These tests encode graded requirements. The `guards` CI job is not allowed to fail.
 
 | Guard | Why it exists |
 |---|---|
@@ -19,6 +19,8 @@ These five tests encode graded requirements. The `guards` CI job is not allowed 
 | `test_heldout_never_referenced_outside_eval` | Keyed on the *path*, so prose discussing held-out methodology does not break the build while `eval/held_out/` cannot evade the guard. |
 | `test_ingestion_globs_exclude_the_eval_tree` | Retrieval must never be able to index the answers. Every glob stays rooted in `data/`. |
 | `test_every_package_has_a_codeowner` | A package added later with no owner silently drops the review separations. |
+| `test_read_only_servers_still_declare_their_tools_read_only` | Write marking comes off the wire and fails closed, so the scheme rests on each server declaring `read_only_hint` honestly. Builds the real servers in-process and reads the real annotations. |
+| `test_actions_match_the_tool_schemas` | Every action a runbook names must exist in `oncall_contracts.tools.ACTION_SCHEMAS`. Was pending; activated when that module landed. |
 
 **If a guard fails, do not weaken the guard.** It is reporting a real leak. Fix the code.
 
@@ -148,7 +150,7 @@ Keep these small. Everything else in a package is internal and may change freely
 | Package | Public API |
 |---|---|
 | `oncall-graph` | `build_graph(tools, store, *, topology) -> CompiledStateGraph` — nothing else |
-| `oncall-tools` | `load_tools(transport) -> ToolRegistry`; the hook callables |
+| `oncall-tools` | `load_tools(transport) -> ToolRegistry` returning framework-neutral `ToolSpec`s; `permissions.for_role` / `assert_read_only`; `hooks.pre_tool.pre_tool`. `registry.SERVERS` lists only servers that exist |
 | `oncall-knowledge` | `Retriever.build(documents, *, semantic, k0)` / `.retrieve(query, k)` / `.search(query, k)`; memory-store interfaces to come. Everything under `indexing/` is internal |
 | `oncall-service` | the HTTP API (not a Python API) |
 | `oncall-eval` | a CLI; imported by nobody |
@@ -172,6 +174,44 @@ Every run writes a `RunRecord` carrying `config_id` and `complexity`. Group by t
 you get the E1 table. Without both, the only answer available is one aggregate number, which
 cannot support a claim like "the team helps on multi-service incidents but costs more on
 simple ones".
+
+## The tool registry, and the one thing it asks of `oncall-graph`
+
+`load_tools()` is the only path from the graph to retrieval: `oncall_graph` may import
+`oncall_tools` but **not** `oncall_knowledge`, enforced by `make guards`. See
+[ADR-0003](docs/decisions/0003-mcp-tool-registry-and-write-isolation.md) for the reasoning.
+
+```python
+with load_tools() as registry:  # $MCP_TRANSPORT, else stdio
+    tools = for_role(registry, "diagnosis")  # reads only; writes are not in it
+    pre_tool(tools["search_runbooks"], args)  # returns quietly for a read
+    hits = tools["search_runbooks"].invoke({"query": "checkout 422", "k": 5})
+```
+
+A `ToolSpec` carries `name`, `description`, the server's own `schema` (JSON Schema, passed
+through untouched), `write`, `server` and a synchronous `invoke`. It is **not** a LangChain tool:
+building those here would bind the tool layer to the agent framework.
+
+**This asks one change of P2, not yet made.** `agent._as_langchain_tool` needs a third branch,
+for a tool carrying a JSON Schema rather than a function with typed parameters — a
+`StructuredTool` with an `args_schema` built from `spec.schema`. Until then the registry and the
+graph do not meet, and `build_graph` still refuses non-empty tools on purpose.
+
+**Also unresolved, and P2's call:** the stub `search_runbooks(symptom) -> {"passages": [...]}` in
+`oncall_graph/stubs.py` is not the real contract (`search_runbooks(query, k) -> [hits]`, `fix` as
+a mapping, plus `status` and the two pre-fusion ranks). The stub has no `status` field at all,
+which is the one D13 exists for — the agent cannot say "the only runbook I found is unverified"
+if the shape it reads cannot carry that.
+
+**Write isolation is two layers, neither of them the network.** `for_role` keeps a write tool out
+of a diagnosis registry so the model cannot try what it cannot see; `pre_tool` refuses an
+unapproved write even if one got there. Marking comes from each server's own
+`ToolAnnotations(read_only_hint=...)` and **fails closed**: anything not explicitly `True` is a
+write, so forgetting to annotate withholds a tool rather than trusting it.
+
+**Approval binds to the exact arguments**, via `oncall_contracts.tools.fingerprint`. An approval
+bound to a tool name would let `set_flag adFailure on` run because someone approved
+`set_flag paymentFailure off`.
 
 ## The P2 / P3 seam
 
