@@ -246,6 +246,45 @@ def test_every_package_has_a_codeowner() -> None:
     assert not missing, f"packages with no CODEOWNERS entry: {missing}"
 
 
+#: Servers that must serve nothing but reads. `ops_actions` is deliberately not
+#: here and must not be added: it is the ONE write server, and the control on it
+#: is `for_role` plus the approval gate, not a claim that it serves no writes.
+READ_ONLY_SERVERS = frozenset({"runbooks"})
+
+
+def test_read_only_servers_still_declare_their_tools_read_only() -> None:
+    """Write marking comes off the wire and fails closed, so the whole scheme
+    rests on each server declaring `read_only_hint` honestly.
+
+    This builds the real servers in this process and reads the real annotations.
+    A server that stops declaring a tool read-only, or starts serving a write
+    tool it did not before, fails here rather than in a demo. `semantic=False`
+    keeps it torch-free so it runs in CI.
+
+    NOTE on what is NOT asserted here: checking `assert_read_only` against
+    `for_role(registry, "diagnosis")` would be vacuous, because `for_role`
+    builds that view by filtering writes out -- it cannot contain one by
+    construction. Measured: with a server's annotation flipped to
+    `read_only_hint=False`, that assertion still passed. `for_role`'s own
+    filtering is tested in test_permissions.py against a registry that actually
+    holds a write tool.
+    """
+    from mcp.client import Client
+    from oncall_tools.registry import load_tools
+    from oncall_tools.servers.runbooks_kb import build_server
+
+    with load_tools(connect=lambda _server: Client(build_server(semantic=False))) as registry:
+        assert registry.names, "the registry loaded no tools at all"
+
+        offenders = sorted(
+            tool.name for tool in registry if tool.server in READ_ONLY_SERVERS and tool.write
+        )
+        assert not offenders, (
+            f"{offenders} are served by a read-only server but are not declared "
+            "read_only_hint=True, so they would be withheld from every diagnosis agent"
+        )
+
+
 def test_actions_match_the_tool_schemas() -> None:
     """Every action a runbook names must exist in the MCP tool contracts.
 
