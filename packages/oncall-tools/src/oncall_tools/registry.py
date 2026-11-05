@@ -75,6 +75,10 @@ class ServerSpec:
 
 SERVERS: Mapping[str, ServerSpec] = {
     "runbooks": ServerSpec("runbooks", "oncall_tools.servers.runbooks_kb", 8102),
+    # The only write server. It is in the registry like any other -- what keeps
+    # its tools away from a diagnosis agent is `permissions.for_role`, not
+    # omission here, and not network reachability.
+    "ops_actions": ServerSpec("ops_actions", "oncall_tools.servers.ops_actions", 8104),
 }
 
 

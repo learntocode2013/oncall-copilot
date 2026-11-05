@@ -1,0 +1,68 @@
+# mcp-ops-actions: the ONLY write server. Applies a runbook's fix, or rolls one
+# back, by editing the flagd document flagd watches.
+#
+# A SECOND DOCKERFILE, not a shared one, because this server's dependencies are
+# nothing like the runbooks server's. It reads the corpus (oncall_knowledge's
+# ingestion and validator) but never embeds anything, so it needs no
+# `--extra semantic` and no torch: ~250 MB against mcp-runbooks' 1.66 GB. One
+# Dockerfile serving both would put a 1.4 GB embedder in the write server.
+#
+# Build context is the REPO ROOT: uv needs the workspace root pyproject.toml and
+# uv.lock to resolve a member.
+FROM python:3.12-slim
+
+# Pinned to CI's UV_VERSION, as mcp-runbooks is.
+COPY --from=ghcr.io/astral-sh/uv:0.11.17 /uv /bin/uv
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock ./
+COPY packages/oncall-contracts/pyproject.toml packages/oncall-contracts/
+COPY packages/oncall-knowledge/pyproject.toml packages/oncall-knowledge/
+COPY packages/oncall-tools/pyproject.toml packages/oncall-tools/
+
+COPY packages/oncall-contracts/ packages/oncall-contracts/
+COPY packages/oncall-knowledge/ packages/oncall-knowledge/
+COPY packages/oncall-tools/ packages/oncall-tools/
+
+# --package oncall-tools, not the root project: the root depends on all seven
+# workspace members and would need every member's source in this context. No
+# --extra semantic, on purpose -- see the note above.
+#
+# The cache mount keeps uv's downloaded wheels out of the layer.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --package oncall-tools
+
+# Put the venv on PATH and stop using `uv run`: it re-targets the root project,
+# which is not fully present here, and would fail on every container start.
+ENV PATH="/app/.venv/bin:$PATH" \
+    VIRTUAL_ENV=/app/.venv
+
+# The corpus. ops_actions builds its allowlist from every runbook's `fix` and
+# `rollback` at startup, so without this the server cannot start.
+COPY data/ data/
+
+# TWO flagd documents, deliberately.
+#
+# This COPY is the COMMITTED BASELINE, read only to validate the corpus: the
+# validator rejects a document with any fault armed, so it has to read the
+# as-shipped file. It is also what the allowlist is derived from, which means
+# editing the live document cannot widen what the agent may do.
+COPY deploy/flagd/ deploy/flagd/
+
+# FLAGD_CONFIG points at the LIVE document, mounted read-write by Compose. That
+# is the one this server edits and the one flagd watches. A baked copy would be
+# edited inside the container where flagd would never see the change.
+ENV FLAGD_CONFIG=/etc/flagd/demo.flagd.json
+
+EXPOSE 8104
+
+# 0.0.0.0, not the SDK's loopback default: a server bound to 127.0.0.1 inside a
+# container is unreachable from the Compose network.
+CMD ["python", "-m", "oncall_tools.servers.ops_actions", \
+     "--transport", "http", "--port", "8104", "--host", "0.0.0.0"]

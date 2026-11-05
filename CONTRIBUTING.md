@@ -21,6 +21,8 @@ These tests encode graded requirements. The `guards` CI job is not allowed to fa
 | `test_every_package_has_a_codeowner` | A package added later with no owner silently drops the review separations. |
 | `test_read_only_servers_still_declare_their_tools_read_only` | Write marking comes off the wire and fails closed, so the scheme rests on each server declaring `read_only_hint` honestly. Builds the real servers in-process and reads the real annotations. |
 | `test_actions_match_the_tool_schemas` | Every action a runbook names must exist in `oncall_contracts.tools.ACTION_SCHEMAS`. Was pending; activated when that module landed. |
+| `test_the_write_server_declares_its_tools_as_writes` | The opposite mistake to the row above: a tool that changes the system while declaring `read_only_hint=True` fails closed into the WRONG state, and would be handed to every diagnosis agent. |
+| `test_no_diagnosis_registry_holds_a_write_tool` | The graded requirement. Runs against the real servers, and asserts the filtering removed something rather than that there was nothing to remove. |
 
 **If a guard fails, do not weaken the guard.** It is reporting a real leak. Fix the code.
 
@@ -33,6 +35,7 @@ graph             ◀──  service
 service           ◀──  eval          (over HTTP, never by import)
 eval              ◀──  nothing
 lab               ◀──  nothing       (pages the service over HTTP; holds the fault manifest)
+                                 lab itself imports contracts, for the shared flagd writer
 ```
 
 `oncall-contracts` exists to break a cycle. If `IncidentState` lived in `oncall-graph`, then P4
@@ -197,6 +200,18 @@ for a tool carrying a JSON Schema rather than a function with typed parameters �
 `StructuredTool` with an `args_schema` built from `spec.schema`. Until then the registry and the
 graph do not meet, and `build_graph` still refuses non-empty tools on purpose.
 
+**⚠ `set_flag` has two incompatible definitions, and P2 owns the fix.**
+`planning/plan.py` declares `ACTION_ARGS = {"set_flag": {"flag": str, "enabled": bool}}`; the
+corpus, the validator, `ACTION_SCHEMAS` and `mcp-ops-actions` all use `{flag: str, variant: str}`.
+A boolean **cannot express this corpus**: 6 of 18 demo flags have variants beyond `on`/`off`
+(`cartFailure: [10%, 25%, 50%, 75%, 90%, 100%, off]`, `emailMemoryLeak: [1x … 10000x, off]`, …)
+and six runbook actions name variants like `10sec` and `1000x`. It is not a one-line change:
+`default_rollback` derives a `set_flag`'s inverse **by negating the boolean**, and `stubs.py`
+models the scripted shop's flags as `dict[str, bool]`. The inverse of a fix is not computable by
+negation — it is the runbook's own `rollback`, and `ops_actions.set_flag` returns `previous` for
+exactly that. `ACTION_TOOLS` also names `restart`, `scale` and `rollback`, which have no schema,
+no server and no corpus action.
+
 **Also unresolved, and P2's call:** the stub `search_runbooks(symptom) -> {"passages": [...]}` in
 `oncall_graph/stubs.py` is not the real contract (`search_runbooks(query, k) -> [hits]`, `fix` as
 a mapping, plus `status` and the two pre-fusion ranks). The stub has no `status` field at all,
@@ -212,6 +227,36 @@ write, so forgetting to annotate withholds a tool rather than trusting it.
 **Approval binds to the exact arguments**, via `oncall_contracts.tools.fingerprint`. An approval
 bound to a tool name would let `set_flag adFailure on` run because someone approved
 `set_flag paymentFailure off`.
+
+## `mcp-ops-actions`: the only write server
+
+Port 8104. Two tools, both writes, both approval-gated. See
+[ADR-0004](docs/decisions/0004-the-only-write-server.md).
+
+```python
+set_flag(flag, variant)  # fixes only: every corpus fix is variant="off"
+rollback_flag(flag, variant)  # RE-ARMS the fault; every corpus rollback does
+```
+
+**Two tools because the corpus splits cleanly.** Every `fix` in all 18 runbooks is
+`variant: "off"`; every `rollback` restores the fault variant (`on`, `100%`, `10sec`, `1000x`).
+The two sets of pairs are disjoint — 17 of 17 rollback pairs appear in no fix. One tool accepting
+both would be able to arm every fault in the corpus, with nothing but a variant string separating
+a fix from a re-arm.
+
+**Each tool accepts only (flag, variant) pairs the corpus names** — 16 fix pairs, 17 rollback
+pairs, built from the runbooks at startup. `paymentFailure -> 50%` exists in flagd and is
+refused. `emitRawPii`, one of two demo flags no runbook names, is unreachable. The allowlist is
+not the primary control (the approval gate is); it limits what an approved-but-wrong call can do.
+
+**Two flagd documents, deliberately.** The committed baseline is copied into the image and is
+what `ingest_runbooks()` validates against and what the allowlist comes from; the live document
+is mounted **read-write** at `/etc/flagd` and is what the server edits. Using one path for both
+fails: the validator rejects a document with any fault armed, so the server would refuse to start
+during every incident it exists to resolve.
+
+**Its own Dockerfile**, `Dockerfile.ops-actions`, with no `semantic` extra: 344 MB against
+`mcp-runbooks`' 1.66 GB. Build-only in `make images` because its runtime needs that mount.
 
 ## The P2 / P3 seam
 
