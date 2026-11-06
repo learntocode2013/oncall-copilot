@@ -4,6 +4,12 @@ version = "0.1.0"
 description = "Operator lab for arming manifest faults and paging the incident API."
 requires-python = ">=3.12"
 dependencies = [
+    # The shared flagd writer: the lab edits the document to inject a fault and
+    # `mcp-ops-actions` edits it to clear one. Moved here from
+    # `oncall_lab/flags.py` in #19 -- and that PR did not add this line, so
+    # `uv sync --package oncall-lab` stopped installing what main.py imports and
+    # the container exited at startup. See the guard in tests/test_guards.py.
+    "oncall-contracts",
     "fastapi>=0.115",
     "pyyaml>=6.0.3",
     "uvicorn[standard]>=0.34",

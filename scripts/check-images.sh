@@ -14,12 +14,25 @@
 #      runbook's `fix` against deploy/flagd/demo.flagd.json, which the image
 #      never copied.
 #
-# All five checks passed over both.
+#   3. oncall-lab would not IMPORT. #19 moved the flagd writer into
+#      oncall_contracts and the lab began importing it, but oncall-lab's
+#      [project.dependencies] never said so. `uv sync --package oncall-lab`
+#      installs only what the member declares, so the image built clean and
+#      exited at startup with ModuleNotFoundError. This was build-only under
+#      the rule below, so nothing ran it.
+#
+# All five checks passed over all three.
 #
 # THE RULE FOR WHAT GETS RUN: run what needs no mounts, build what does.
 # Replicating a service's compose configuration here would create a second copy
 # of compose.oncall.yaml that drifts from the first, and a smoke test against a
 # configuration nobody ships is worse than no smoke test.
+#
+# BUT A BUILD-ONLY IMAGE STILL GETS ITS ENTRY POINT IMPORTED. Failure 3 needed
+# no configuration to find: the module does not import, whatever it is mounted
+# on. An import check needs no env, no ports and no mounts, so it cannot drift
+# from compose -- it is not a configuration. It catches the whole class of
+# "declared nowhere, installed nowhere, built fine".
 
 set -euo pipefail
 
@@ -99,13 +112,28 @@ wait_for "$SERVICE" 30 "answering /healthz" python -c \
     "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=2)"
 echo "oncall-service: healthz OK"
 
-# oncall-lab and mcp-ops-actions are build-only. The lab's runtime needs
-# eval/faults/manifest.yaml mounted at /lab/manifest.yaml, and ops-actions needs
-# deploy/flagd mounted READ-WRITE at /etc/flagd -- it exists to edit that
-# document. Those bindings belong to compose. See the rule at the top.
+# --- build-only images: import the entry point ------------------------------
 #
-# ops-actions' startup path is covered instead by test_ops_actions.py, which
-# builds the server against a tmp_path copy of the real flagd document: the same
-# corpus ingestion and the same file read, without a container.
+# oncall-lab's runtime needs eval/faults/manifest.yaml at /lab/manifest.yaml,
+# and ops-actions needs deploy/flagd mounted READ-WRITE at /etc/flagd -- it
+# exists to edit that document. Those bindings belong to compose, so neither is
+# started here. Importing the module needs none of them, and it is what would
+# have caught the lab shipping without oncall-contracts installed.
+#
+# ops-actions' startup path beyond the import is covered by test_ops_actions.py,
+# which builds the server against a tmp_path copy of the real flagd document.
 
-printf '\nall images built; mcp-runbooks and oncall-service start and answer\n'
+imports() {
+    local name=$1 module=$2
+    printf '\n=== import %s ===\n' "$name"
+    if ! docker run --rm --entrypoint python "$name:ci" -c "import $module" 2>&1; then
+        echo "FAIL: $name cannot import $module -- the image built but will not start" >&2
+        exit 1
+    fi
+    echo "$name: $module imports OK"
+}
+
+imports oncall-lab      oncall_lab.main
+imports mcp-ops-actions oncall_tools.servers.ops_actions
+
+printf '\nall images built; 2 start and answer, 2 import their entry point\n'
