@@ -101,6 +101,19 @@ def _verification_failed(state) -> bool:
     return verification.get("recovered") is False
 
 
+def _previous_variant(state) -> str:
+    """The variant in effect before the approved write, as the write reported it.
+
+    Empty when the last step was not the flag write -- a rollback built from a
+    read step's result would restore whatever happened to be in that payload.
+    """
+    last = state.get("last") or {}
+    if (last.get("step") or {}).get("tool") != "set_flag":
+        return ""
+    previous = (last.get("result") or {}).get("previous")
+    return previous.strip() if isinstance(previous, str) and previous.strip() else ""
+
+
 def code_rollback(state) -> dict:
     """The shop call for the inverse. The contract rollback string is not executed."""
     action = state.get("proposed_action") or {}
@@ -108,8 +121,20 @@ def code_rollback(state) -> dict:
         return {}
     name = action.get("action")
     args = dict(action.get("args") or {})
-    if name == "set_flag" and isinstance(args.get("enabled"), bool):
-        return {"tool": "set_flag", "args": {**args, "enabled": not args["enabled"]}}
+    if name == "set_flag":
+        # RESTORE WHAT THE WRITE ITSELF REPORTED, do not infer it. `not enabled`
+        # assumed a flag has two states; paymentFailure has seven. The forward
+        # write returns the variant it replaced, which is the only exact answer
+        # available to this package -- the runbook that names the re-arm variant
+        # lives in a corpus `oncall_graph` may not import.
+        #
+        # `rollback_flag`, not `set_flag`: the write server accepts only `off`
+        # pairs through the fix tool and refuses to re-arm a fault through it.
+        previous = _previous_variant(state)
+        flag = args.get("flag")
+        if previous and isinstance(flag, str) and flag.strip():
+            return {"tool": "rollback_flag", "args": {"flag": flag, "variant": previous}}
+        return {}
     if name in ("restart", "scale", "rollback"):
         service = str(args.get("service") or "")
         return {"tool": "rollback", "args": {"service": service}}

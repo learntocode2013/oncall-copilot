@@ -280,9 +280,9 @@ Diagnosis already wrote the hypotheses. This node does not append another one. I
 ```python
 {
     "action": "set_flag",
-    "args": {"flag": "paymentFailure", "enabled": False},
+    "args": {"flag": "paymentFailure", "variant": "off"},
     "expected_effect": "checkout error rate falls under 5%",
-    "rollback": "set_flag paymentFailure enabled=true",
+    "rollback": "rollback_flag paymentFailure to its previous variant",
 }
 ```
 

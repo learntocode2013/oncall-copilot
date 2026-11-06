@@ -352,9 +352,9 @@ async def _run_demo(store: IncidentStore, incident: Incident) -> None:
 
     action = {
         "action": "set_flag",
-        "args": {"flag": "paymentFailure", "enabled": False},
+        "args": {"flag": "paymentFailure", "variant": "off"},
         "expected_effect": "Payment transactions resume and checkout 422s fall",
-        "rollback": "set paymentFailure back to enabled",
+        "rollback": "rollback_flag paymentFailure to its previous variant",
     }
     command = command_payload(action)
     incident.state["proposed_action"] = action
@@ -402,12 +402,12 @@ async def _resume_demo(store: IncidentStore, incident: Incident, decision: str) 
         "root_cause_services": ["payment"],
         "proposed_action": {
             "action": "set_flag",
-            "args": {"flag": "paymentFailure", "enabled": False},
+            "args": {"flag": "paymentFailure", "variant": "off"},
         },
         "executed_actions": [
             {
                 "action": "set_flag",
-                "args": {"flag": "paymentFailure", "enabled": False},
+                "args": {"flag": "paymentFailure", "variant": "off"},
             }
         ],
         "tool_calls": 2,

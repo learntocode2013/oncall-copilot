@@ -60,7 +60,7 @@ def _payment_steps():
             "set_flag",
             {
                 "flag": "paymentFailure",
-                "enabled": False,
+                "variant": "off",
                 "expected_effect": "checkout error rate falls below 5%",
             },
             "c3",

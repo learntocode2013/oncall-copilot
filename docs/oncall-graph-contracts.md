@@ -330,7 +330,7 @@ One write, typed arguments, an expected effect, and a rollback.
 
 | Action | Arguments | Default rollback |
 |---|---|---|
-| `set_flag` | `flag: str`, `enabled: bool` | `set_flag` of the same flag with `enabled` flipped |
+| `set_flag` | `flag: str`, `variant: Variant` | `rollback_flag` of the same flag, restoring the `previous` variant the write reported — see [ADR-0005](decisions/0005-one-set_flag-payload.md) |
 | `restart` | `service: str` | `rollback` of that service |
 | `scale` | `service: str`, `replicas: int` (`>= 1`) | `rollback` of that service |
 | `rollback` | `service: str` | the procedure names that service; it does not nest another rollback |

@@ -54,6 +54,10 @@ Build-only in `make images`, like `oncall-lab`: its runtime needs `deploy/flagd`
 
 ## Recorded, NOT fixed: `set_flag` has two incompatible definitions
 
+> **Resolved since.** See `0005-one-set_flag-payload.md`. The planner now takes
+> `{flag, variant}` and the inverse is read from the write's `previous`, which is
+> the approach this section recommended. The analysis below is kept as written.
+
 `oncall_graph/planning/plan.py` declares `ACTION_ARGS = {"set_flag": {"flag": str, "enabled": bool}}`. The corpus, the validator, `oncall_contracts.tools.ACTION_SCHEMAS` and this server all use `{"flag": str, "variant": str}`.
 
 **`{flag, enabled: bool}` cannot express the corpus.** 6 of the 18 demo flags have variants beyond `on`/`off` — `aiSlowResponse: [10sec, 5sec, off]`, `cartFailure: [10%, 25%, 50%, 75%, 90%, 100%, off]`, `emailMemoryLeak: [1x, 10x, 100x, 1000x, 10000x, off]` and three more — and six runbook actions name variants like `10sec`, `100%` and `1000x`.

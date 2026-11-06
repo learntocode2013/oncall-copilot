@@ -364,6 +364,38 @@ def test_actions_match_the_tool_schemas() -> None:
     assert not unknown, f"actions with no tool schema: {sorted(unknown)}"
 
 
+def test_the_planner_and_the_write_server_agree_on_every_payload() -> None:
+    """The planner's typed arguments must match the MCP tool contract, per action.
+
+    `test_actions_match_the_tool_schemas` above checks that every action NAME a
+    runbook may use has a tool schema. It says nothing about the arguments, and
+    for three PRs `set_flag` therefore had two incompatible definitions in two
+    owners' packages: `{flag, enabled: bool}` in the planner, `{flag, variant}`
+    on the server. Both were internally consistent and fully tested. Nothing
+    could fail, because `build_graph` refuses a non-empty tool dict -- so the
+    planner and the server had never once had to agree.
+
+    Asserted per action rather than in aggregate, and `set_flag` is asserted to
+    be in both maps first: a guard that compared two empty intersections would
+    pass forever.
+    """
+    from oncall_contracts.tools import ACTION_SCHEMAS
+    from oncall_graph.planning.plan import ACTION_ARGS
+
+    assert "set_flag" in ACTION_ARGS, "the planner no longer declares set_flag"
+    assert "set_flag" in ACTION_SCHEMAS, "the contract no longer declares set_flag"
+
+    for action, schema in ACTION_SCHEMAS.items():
+        if action not in ACTION_ARGS:
+            continue  # an action the planner cannot propose; nothing to disagree about
+        planner = set(ACTION_ARGS[action])
+        contract = set(schema.get("properties") or {})
+        assert planner == contract, (
+            f"{action}: the planner takes {sorted(planner)} and the tool declares "
+            f"{sorted(contract)} -- one of them will be refused on the wire"
+        )
+
+
 def test_ci_runs_the_guards_and_cannot_be_softened() -> None:
     """CI must run the guards, and no job may be allowed to fail quietly.
 

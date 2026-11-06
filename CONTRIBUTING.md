@@ -200,17 +200,40 @@ for a tool carrying a JSON Schema rather than a function with typed parameters �
 `StructuredTool` with an `args_schema` built from `spec.schema`. Until then the registry and the
 graph do not meet, and `build_graph` still refuses non-empty tools on purpose.
 
-**⚠ `set_flag` has two incompatible definitions, and P2 owns the fix.**
-`planning/plan.py` declares `ACTION_ARGS = {"set_flag": {"flag": str, "enabled": bool}}`; the
-corpus, the validator, `ACTION_SCHEMAS` and `mcp-ops-actions` all use `{flag: str, variant: str}`.
-A boolean **cannot express this corpus**: 6 of 18 demo flags have variants beyond `on`/`off`
-(`cartFailure: [10%, 25%, 50%, 75%, 90%, 100%, off]`, `emailMemoryLeak: [1x … 10000x, off]`, …)
-and six runbook actions name variants like `10sec` and `1000x`. It is not a one-line change:
-`default_rollback` derives a `set_flag`'s inverse **by negating the boolean**, and `stubs.py`
-models the scripted shop's flags as `dict[str, bool]`. The inverse of a fix is not computable by
-negation — it is the runbook's own `rollback`, and `ops_actions.set_flag` returns `previous` for
-exactly that. `ACTION_TOOLS` also names `restart`, `scale` and `rollback`, which have no schema,
-no server and no corpus action.
+### `set_flag` takes `{flag, variant}`, and the undo is read, not computed
+
+One payload, everywhere: `{"flag": str, "variant": str}` in the corpus, the validator,
+`ACTION_SCHEMAS`, `mcp-ops-actions`, `plan.ACTION_ARGS` and the scripted shop. `enabled: bool`
+is gone, and `test_the_planner_and_the_write_server_agree_on_every_payload` compares the two
+definitions per action so they cannot drift apart again. A boolean could never express this
+corpus anyway — 6 of 18 demo flags have variants beyond `on`/`off`.
+
+Three things follow, and each is a trap if you miss it:
+
+**A variant is not a token.** Every other string argument is checked against `_TOKEN`
+(`^[A-Za-z_][A-Za-z0-9_-]*$`), which rejects `100%`, `1000x` and `10sec` — three of the five
+variant shapes in the corpus. Variants use `_VARIANT` instead, and the `Variant` marker type in
+`ACTION_ARGS` is what selects it. Validating a variant as a token accepts every fix and refuses
+every rollback: a failure that appears only while undoing.
+
+**The inverse cannot be derived.** `default_rollback` used to return `not enabled`; there is no
+`not "100%"`, and the variant that re-arms a fault is named by the runbook, which `oncall_graph`
+may not read. So `monitor.code_rollback` restores the `previous` variant that the forward write
+itself reported — exact, where negation only ever assumed flags were two-valued. `Shop.apply`
+returns `previous` for this reason, matching what `mcp-ops-actions` already returned.
+
+**`"off"` is truthy.** `if shop.flags.get("paymentFailure")` read correctly while the values were
+booleans and inverts silently now: a cleared flag reports the shop as broken. Use `Shop.armed()`,
+and in `handoffs.suspects_from_exchanges` compare `change.get("variant") == "off"`.
+
+The undo is `rollback_flag`, not `set_flag`, and it is deliberately **not** in `ACTION_TOOLS`:
+a model may not propose a re-arm, so `validate_action` rejects it as an unknown action and only
+`code_rollback` names it. `WRITE_TOOLS` is what `Shop.apply` accepts. This mirrors the server-side
+split — see "`mcp-ops-actions`: the only write server".
+
+Still unreconciled, and P2's call: `ACTION_TOOLS` names `restart`, `scale` and `rollback`, which
+have no schema in `ACTION_SCHEMAS`, no server and no corpus action. The guard above skips an
+action the contract does not declare, so it does not catch these.
 
 **Also unresolved, and P2's call:** the stub `search_runbooks(symptom) -> {"passages": [...]}` in
 `oncall_graph/stubs.py` is not the real contract (`search_runbooks(query, k) -> [hits]`, `fix` as

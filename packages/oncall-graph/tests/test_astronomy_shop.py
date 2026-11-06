@@ -126,6 +126,6 @@ def test_live_shop_reads_telemetry_and_keeps_stub_writes(monkeypatch):
     shop = LiveShop(host="lab.example")
     assert shop.promql("up") == {"query": "up", "series": []}
     assert shop.reads[-1] == ("promql", {"query": "up"})
-    assert shop.flags["paymentFailure"] is True
-    shop.apply("set_flag", {"flag": "paymentFailure", "enabled": False})
-    assert shop.flags["paymentFailure"] is False
+    assert shop.flags["paymentFailure"] == "100%"
+    shop.apply("set_flag", {"flag": "paymentFailure", "variant": "off"})
+    assert shop.flags["paymentFailure"] == "off"
