@@ -1,7 +1,18 @@
 """Change one flagd default variant and leave the rest of the document alone.
 
-flagd reads ``deploy/flagd/demo.flagd.json`` and reloads it. This writer is
-the same file the evaluation injector edits. It does not create flags.
+flagd reads ``deploy/flagd/demo.flagd.json`` and reloads it. It does not create
+flags.
+
+IN CONTRACTS, NOT IN EITHER CALLER. Two packages write this document with
+opposite intent: `oncall-lab` sets a fault variant to INJECT a fault, and
+`oncall_tools.servers.ops_actions` sets a flag to `off` to FIX one. The
+dependency rules say nothing may import the lab -- it holds the fault
+manifest's root cause -- so a shared writer cannot live there, and a second
+copy in oncall-tools would mean a flagd schema change needs fixing twice.
+Breaking exactly this kind of sharing cycle is why oncall-contracts exists.
+
+Moved here from `oncall_lab.flags` on 2026-11-06. The API is unchanged; only
+the import path moved. P4/P5 own the lab and should confirm the move.
 """
 
 from __future__ import annotations

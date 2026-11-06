@@ -222,3 +222,38 @@ services:
       # unhealthy verdict during model load would be wrong, not useful.
       start_period: 60s
     restart: unless-stopped
+
+  # THE ONLY WRITE SERVER. Network reachability is not the control: in this mode
+  # mcp-ops-actions is just another container on this network and any agent
+  # could reach it. What stops a diagnosis agent calling it is
+  # `permissions.for_role`, which never puts a write tool in a diagnosis
+  # registry, and `hooks.pre_tool`, which refuses an unapproved write.
+  mcp-ops-actions:
+    build:
+      context: ${ONCALL_ROOT:?set ONCALL_ROOT to the repo root}
+      dockerfile: packages/oncall-tools/Dockerfile.ops-actions
+    container_name: mcp-ops-actions
+    ports:
+      - "8104:8104"
+    environment:
+      FLAGD_CONFIG: /etc/flagd/demo.flagd.json
+    volumes:
+      # READ-WRITE, unlike every other mount in this overlay. This server exists
+      # to edit the document flagd watches, and the same file is what the lab
+      # edits to inject a fault -- the two write it with opposite intent. See
+      # oncall_contracts.flagd for why the writer is shared.
+      - ${ONCALL_ROOT:?set ONCALL_ROOT to the repo root}/deploy/flagd:/etc/flagd
+    # A TCP probe, not an MCP call: MCP's streamable-http endpoint needs a POST
+    # with specific headers, so a GET-based check reports unhealthy on a working
+    # server. `sh` is dash in this image and cannot do /dev/tcp, so bash is
+    # invoked explicitly.
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8104'"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      # Shorter than mcp-runbooks' 60s: this server loads no model. It ingests
+      # 18 runbooks and reads one JSON document before binding, so a healthy
+      # container means the corpus validated and the flag file is readable.
+      start_period: 20s
+    restart: unless-stopped

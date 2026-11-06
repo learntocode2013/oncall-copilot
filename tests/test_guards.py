@@ -51,8 +51,12 @@ ALLOWED_IMPORTS: dict[str, set[str]] = {
     "oncall_graph": {"oncall_contracts", "oncall_tools"},
     "oncall_service": {"oncall_contracts", "oncall_graph"},
     "oncall_eval": {"oncall_contracts"},
-    # The lab holds the fault manifest's root cause. Nothing else may import it.
-    "oncall_lab": set(),
+    # The lab holds the fault manifest's root cause. NOTHING MAY IMPORT THE LAB
+    # -- that is the rule, and it is unchanged. The lab importing contracts is
+    # the other direction: it reads the shared flagd writer from
+    # oncall_contracts.flagd, which ops_actions also uses with the opposite
+    # intent. contracts imports nothing, so there is no cycle.
+    "oncall_lab": {"oncall_contracts"},
 }
 
 
@@ -247,33 +251,47 @@ def test_every_package_has_a_codeowner() -> None:
 
 
 #: Servers that must serve nothing but reads. `ops_actions` is deliberately not
-#: here and must not be added: it is the ONE write server, and the control on it
-#: is `for_role` plus the approval gate, not a claim that it serves no writes.
+#: here and must never be added: it is the ONE write server, and the control on
+#: it is `for_role` plus the approval gate, not a claim that it serves no writes.
 READ_ONLY_SERVERS = frozenset({"runbooks"})
+
+
+def _in_process_registry():
+    """Every server in SERVERS, running in this process.
+
+    No port, no subprocess, `semantic=False` so no torch -- so these guards run
+    in CI against the real servers and the real annotations rather than against
+    a description of them.
+    """
+    from mcp.client import Client
+    from oncall_tools.registry import load_tools
+    from oncall_tools.servers.ops_actions import build_server as ops_server
+    from oncall_tools.servers.runbooks_kb import build_server as runbooks_server
+
+    def connect(server):
+        if server.name == "runbooks":
+            return Client(runbooks_server(semantic=False))
+        if server.name == "ops_actions":
+            return Client(ops_server())
+        raise AssertionError(f"no in-process client for {server.name!r}: add one here")
+
+    return load_tools(connect=connect)
 
 
 def test_read_only_servers_still_declare_their_tools_read_only() -> None:
     """Write marking comes off the wire and fails closed, so the whole scheme
     rests on each server declaring `read_only_hint` honestly.
 
-    This builds the real servers in this process and reads the real annotations.
     A server that stops declaring a tool read-only, or starts serving a write
-    tool it did not before, fails here rather than in a demo. `semantic=False`
-    keeps it torch-free so it runs in CI.
+    tool it did not before, fails here rather than in a demo.
 
     NOTE on what is NOT asserted here: checking `assert_read_only` against
     `for_role(registry, "diagnosis")` would be vacuous, because `for_role`
     builds that view by filtering writes out -- it cannot contain one by
     construction. Measured: with a server's annotation flipped to
-    `read_only_hint=False`, that assertion still passed. `for_role`'s own
-    filtering is tested in test_permissions.py against a registry that actually
-    holds a write tool.
+    `read_only_hint=False`, that assertion still passed.
     """
-    from mcp.client import Client
-    from oncall_tools.registry import load_tools
-    from oncall_tools.servers.runbooks_kb import build_server
-
-    with load_tools(connect=lambda _server: Client(build_server(semantic=False))) as registry:
+    with _in_process_registry() as registry:
         assert registry.names, "the registry loaded no tools at all"
 
         offenders = sorted(
@@ -283,6 +301,48 @@ def test_read_only_servers_still_declare_their_tools_read_only() -> None:
             f"{offenders} are served by a read-only server but are not declared "
             "read_only_hint=True, so they would be withheld from every diagnosis agent"
         )
+
+
+def test_the_write_server_declares_its_tools_as_writes() -> None:
+    """The other direction, and the one that was untestable until ops_actions
+    existed: a write tool that forgot to say so.
+
+    `_is_write` fails closed, so an unannotated tool is already treated as a
+    write -- this catches the tool that declares `read_only_hint=True` while
+    changing the running system, which fails closed into the WRONG state.
+    """
+    with _in_process_registry() as registry:
+        from oncall_tools.registry import SERVERS
+
+        write_servers = sorted(set(SERVERS) - READ_ONLY_SERVERS)
+        assert write_servers == ["ops_actions"], "the set of write servers changed"
+
+        liars = sorted(tool.name for tool in registry if tool.server == "ops_actions" and tool.read)
+        assert not liars, (
+            f"{liars} are served by the write server but declare themselves read-only, "
+            "so they would be handed to every diagnosis agent"
+        )
+
+
+def test_no_diagnosis_registry_holds_a_write_tool() -> None:
+    """The graded requirement, now that there is a write tool to withhold.
+
+    Until ops_actions existed this could only be tested against a synthetic
+    registry: every real registry's `writes()` was empty, so the assertion was
+    true by there being nothing to isolate. It now runs against the real
+    servers, and the count check is what proves the filtering did work rather
+    than that there was nothing to filter.
+    """
+    from oncall_tools.permissions import assert_read_only, for_role
+
+    with _in_process_registry() as registry:
+        writes = registry.writes().names
+        assert writes, "no write tools in the registry -- this guard would prove nothing"
+
+        diagnosis = for_role(registry, "diagnosis")
+        assert_read_only(diagnosis)
+        assert len(diagnosis) == len(registry) - len(writes)
+        assert not set(diagnosis.names) & set(writes)
 
 
 def test_actions_match_the_tool_schemas() -> None:

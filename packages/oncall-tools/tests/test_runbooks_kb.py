@@ -208,11 +208,16 @@ def test_the_server_declares_which_retriever_it_serves():
 def test_asking_for_semantic_without_the_extra_raises():
     """No automatic fallback: serving the baseline is a decision, not a default
     that happens when a dependency is missing."""
-    import sys
+    import importlib.util
 
     from oncall_knowledge.indexing.semantic import SemanticUnavailableError
 
-    if sys.modules.get("sentence_transformers"):
+    # find_spec, NOT sys.modules. The old check asked whether the module had
+    # already been IMPORTED, which depends on what ran earlier in the session:
+    # it skipped when some previous test happened to load it and failed when
+    # collection order changed. What this test needs to know is whether the
+    # extra is INSTALLED.
+    if importlib.util.find_spec("sentence_transformers") is not None:
         pytest.skip("the extra is installed; this asserts the behaviour without it")
 
     configure(semantic=True)

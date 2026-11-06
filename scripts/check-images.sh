@@ -45,6 +45,7 @@ build() {
 build oncall-service packages/oncall-service/Dockerfile
 build oncall-lab     packages/oncall-lab/Dockerfile
 build mcp-runbooks   packages/oncall-tools/Dockerfile
+build mcp-ops-actions packages/oncall-tools/Dockerfile.ops-actions
 
 # --- waiting -----------------------------------------------------------------
 
@@ -98,8 +99,13 @@ wait_for "$SERVICE" 30 "answering /healthz" python -c \
     "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=2)"
 echo "oncall-service: healthz OK"
 
-# oncall-lab is build-only: its runtime needs eval/faults/manifest.yaml mounted
-# at /lab/manifest.yaml and deploy/flagd at /etc/flagd. Those bindings belong to
-# compose. See the rule at the top.
+# oncall-lab and mcp-ops-actions are build-only. The lab's runtime needs
+# eval/faults/manifest.yaml mounted at /lab/manifest.yaml, and ops-actions needs
+# deploy/flagd mounted READ-WRITE at /etc/flagd -- it exists to edit that
+# document. Those bindings belong to compose. See the rule at the top.
+#
+# ops-actions' startup path is covered instead by test_ops_actions.py, which
+# builds the server against a tmp_path copy of the real flagd document: the same
+# corpus ingestion and the same file read, without a container.
 
 printf '\nall images built; mcp-runbooks and oncall-service start and answer\n'
