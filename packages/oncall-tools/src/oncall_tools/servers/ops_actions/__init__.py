@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from oncall_contracts.flagd import current_variant, read_document, set_variant, write_document
 from oncall_knowledge.ingestion import ingest_runbooks
@@ -70,13 +71,22 @@ Requires human approval, which binds to these exact arguments.
 """
 
 
-class ActionNotAllowed(ValueError):
+class ActionNotAllowed(ToolError):
     """The requested (flag, variant) pair is not one this tool may set.
 
     Raised rather than returned, so a refused action cannot read to the model as
     an action that was applied. The message names what the tool would accept for
     that flag, because "not allowed" with no alternative invites the agent to
     guess variants.
+
+    AN `mcp` `ToolError`, NOT A `ValueError`, AND THAT IS THE WHOLE PROMISE
+    ABOVE. The SDK sorts a tool's exceptions into two kinds: a `ToolError` is
+    "raised deliberately", and its text travels to the caller; anything else is
+    a crash, whose text deliberately STAYS ON THE SERVER. As a `ValueError`
+    this class got the second treatment, so the sentence it composes with such
+    care -- "this tool accepts ['off'] for 'paymentFailure'" -- was replaced by
+    "Error executing tool set_flag" before any agent could read it, and every
+    refusal logged a traceback as though the server had broken.
     """
 
 
