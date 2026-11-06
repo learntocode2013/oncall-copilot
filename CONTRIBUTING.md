@@ -284,6 +284,37 @@ either way and P2 never knows which transport is live.
 Ports: incident API `8000`, lab `8020`, MCP servers `8101`–`8104`. Do not use 8080, 8081, 8089, 8090, 8013,
 8016, 4000, 3000, 9090, 9200, 16686 or 4317 — the demo claims all of them.
 
+### A stdio server inherits almost nothing, and a refusal says almost nothing
+
+Two things do not cross the agent-to-server boundary unless you make them. Both were live in
+`main` and invisible to 371 passing tests, because every test either ran a server in this process
+or called its functions directly.
+
+**Environment.** `StdioServerParameters(env=None)` does not mean "inherit": the SDK substitutes an
+allowlist of `HOME`, `LOGNAME`, `PATH`, `SHELL`, `TERM`, `USER`. Sound as a default — a tool server
+should not inherit the agent's credentials — but it silently drops whatever configures the server.
+`mcp-ops-actions` lost `FLAGD_CONFIG`, fell back to `DEFAULT_FLAG_PATH`, wrote the **committed
+baseline** instead of the live document, and returned `changed: true`. A server that needs a
+variable declares it on its `ServerSpec`:
+
+```python
+ServerSpec("ops_actions", "oncall_tools.servers.ops_actions", 8104, env=("FLAGD_CONFIG",))
+```
+
+Only the named variables are forwarded, and only to that server — `mcp-runbooks` has no business
+knowing where the writable document lives.
+
+**Refusal text.** The SDK sorts a tool's exceptions in two: an `mcp` `ToolError` is deliberate and
+its message reaches the caller; anything else is a crash, and its message *stays on the server* by
+design. So a policy refusal raised as a plain `ValueError` arrives as `Error executing tool
+set_flag`, with a traceback logged as though the server had broken. **Raise `ToolError` for any
+refusal the agent is supposed to learn from** — the allowlist's "this tool accepts `['off']` for
+`'paymentFailure'`" is a correction signal, and withheld it just invites the same call again.
+
+Tests for either live in `packages/oncall-tools/tests/test_wire.py`, which is the one place that
+spawns a server as a subprocess. Put a test there when the thing under test is the boundary rather
+than the server.
+
 ### Containerising a server: sync the member, not the root
 
 `uv sync` in a server's Dockerfile must pass `--package oncall-<name>`. Without it uv syncs the

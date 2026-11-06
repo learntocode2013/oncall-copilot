@@ -44,6 +44,7 @@ from typing import Any, Self
 
 from mcp import StdioServerParameters
 from mcp.client import Client
+from mcp.client.stdio import get_default_environment
 from oncall_contracts.config import Transport
 
 DEFAULT_TRANSPORT: Transport = "stdio"
@@ -68,6 +69,10 @@ class ServerSpec:
     name: str
     module: str
     port: int
+    #: Variables this server is configured by, forwarded to it when it is
+    #: spawned over stdio and to nothing else. See `_stdio_env`. Under http the
+    #: server is a container and Compose sets its environment, so this is unused.
+    env: tuple[str, ...] = ()
 
     def url(self, host: str) -> str:
         return f"http://{host}:{self.port}/mcp"
@@ -78,7 +83,12 @@ SERVERS: Mapping[str, ServerSpec] = {
     # The only write server. It is in the registry like any other -- what keeps
     # its tools away from a diagnosis agent is `permissions.for_role`, not
     # omission here, and not network reachability.
-    "ops_actions": ServerSpec("ops_actions", "oncall_tools.servers.ops_actions", 8104),
+    # `env` is the string, not an import of `servers.ops_actions.FLAG_PATH_ENV`:
+    # importing a server here would make `import oncall_tools.registry` drag in
+    # the corpus reader. `test_wire` pins the two to each other instead.
+    "ops_actions": ServerSpec(
+        "ops_actions", "oncall_tools.servers.ops_actions", 8104, env=("FLAGD_CONFIG",)
+    ),
 }
 
 
@@ -238,11 +248,36 @@ class ToolRegistry:
         self.close()
 
 
+def _stdio_env(spec: ServerSpec) -> dict[str, str]:
+    """The environment a spawned server starts with.
+
+    PASSING NOTHING IS NOT THE SAME AS PASSING THE PARENT'S ENVIRONMENT. Leave
+    `env` unset and the SDK substitutes `get_default_environment()`, which is an
+    allowlist -- HOME, LOGNAME, PATH, SHELL, TERM, USER -- and a sound default:
+    a tool server should not inherit whatever credentials the agent is holding.
+    What it also drops is every variable a server is CONFIGURED by, and it drops
+    them silently. `ops_actions` then fell back to `DEFAULT_FLAG_PATH`, wrote the
+    committed baseline instead of the live document, and reported the write as
+    applied.
+
+    So each spec names what it needs and gets only that. A variable that is
+    unset stays absent rather than arriving empty, because the servers read it
+    as `os.environ.get(NAME) or DEFAULT` and `""` would silently take the
+    default back.
+    """
+    environment = dict(get_default_environment())
+    for name in spec.env:
+        value = os.environ.get(name)
+        if value is not None:
+            environment[name] = value
+    return environment
+
+
 def _client(spec: ServerSpec, transport: Transport, host: str) -> Client:
     if transport == "http":
         return Client(spec.url(host))
     return Client(
-        StdioServerParameters(command="python", args=["-m", spec.module]),
+        StdioServerParameters(command="python", args=["-m", spec.module], env=_stdio_env(spec)),
     )
 
 
