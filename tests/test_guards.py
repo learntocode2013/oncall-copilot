@@ -396,6 +396,55 @@ def test_the_planner_and_the_write_server_agree_on_every_payload() -> None:
         )
 
 
+def test_every_package_declares_the_workspace_members_it_imports() -> None:
+    """An `oncall_*` import must appear in that package's own dependencies.
+
+    `test_dependency_direction` above checks which packages a package MAY
+    import. This checks that what it DOES import is installed when it is built
+    alone. The two are independent, and the gap between them shipped: #19 moved
+    the flagd writer into `oncall_contracts` and `oncall_lab/main.py` began
+    importing it, but `oncall-lab`'s `[project.dependencies]` was never updated.
+
+    Nothing could catch it. `make test` runs in the root venv, where all seven
+    members are installed, so every test passed. `uv sync --package oncall-lab`
+    installs only what the member declares, so the CONTAINER had no
+    `oncall_contracts` -- and `make images` builds the lab without running it,
+    because its runtime needs mounts. A clean build of a broken image.
+
+    Checked against the declared name (`oncall-contracts`) rather than the
+    module (`oncall_contracts`), since that is what uv resolves.
+    """
+    pattern = re.compile(r"^\s*(?:from|import)\s+(oncall_\w+)", re.MULTILINE)
+    offenders: list[str] = []
+
+    for package in sorted(p.name for p in PACKAGES.iterdir() if p.is_dir()):
+        manifest = PACKAGES / package / "pyproject.toml"
+        if not manifest.is_file():
+            continue
+        declared = tomllib.loads(manifest.read_text(encoding="utf-8"))
+        own_module = package.replace("-", "_")
+        requires = declared.get("project", {}).get("dependencies", [])
+        # Extras too: oncall-tools reaches oncall-knowledge through `semantic`.
+        for extra in (declared.get("project", {}).get("optional-dependencies") or {}).values():
+            requires = [*requires, *extra]
+        names = {re.split(r"[\[><=!;\s]", spec, maxsplit=1)[0] for spec in requires}
+
+        source = PACKAGES / package / "src"
+        for path in source.rglob("*.py") if source.is_dir() else []:
+            if "__pycache__" in path.parts:
+                continue
+            for module in pattern.findall(path.read_text(encoding="utf-8")):
+                if module == own_module:
+                    continue
+                if module.replace("_", "-") not in names:
+                    offenders.append(
+                        f"{path.relative_to(ROOT)} imports {module}, "
+                        f"but {package} does not declare {module.replace('_', '-')}"
+                    )
+
+    assert not offenders, "undeclared workspace imports:\n  " + "\n  ".join(sorted(set(offenders)))
+
+
 def test_ci_runs_the_guards_and_cannot_be_softened() -> None:
     """CI must run the guards, and no job may be allowed to fail quietly.
 

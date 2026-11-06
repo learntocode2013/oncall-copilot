@@ -307,6 +307,27 @@ either way and P2 never knows which transport is live.
 Ports: incident API `8000`, lab `8020`, MCP servers `8101`–`8104`. Do not use 8080, 8081, 8089, 8090, 8013,
 8016, 4000, 3000, 9090, 9200, 16686 or 4317 — the demo claims all of them.
 
+### Importing a workspace member is not the same as depending on it
+
+Add `from oncall_contracts... import x` to a package and you must also add
+`"oncall-contracts"` to that package's `[project.dependencies]`. The import works
+immediately in local development and the container exits at startup.
+
+`make test` runs in the root venv, where all seven members are installed, so nothing fails.
+`uv sync --package oncall-lab` installs only what the member *declares*, so the image gets a
+`ModuleNotFoundError` — and it builds perfectly first. This shipped in #19: the flagd writer moved
+into `oncall_contracts`, `oncall_lab/main.py` imported it, the dependency was never declared, and
+`oncall-lab` exited (1) on `make -C deploy up` while CI was green.
+
+`test_every_package_declares_the_workspace_members_it_imports` now checks every package's
+`src/` imports against its own declared dependencies (extras included — `oncall-tools` reaches
+`oncall-knowledge` through `semantic`). `test_dependency_direction` is the separate question of
+which packages a package *may* import; the gap between the two is what shipped.
+
+Build-only images also get `docker run --entrypoint python <image> -c "import <module>"` in
+`scripts/check-images.sh`. An import needs no env, ports or mounts, so it cannot drift from
+compose the way a replicated service configuration would.
+
 ### A stdio server inherits almost nothing, and a refusal says almost nothing
 
 Two things do not cross the agent-to-server boundary unless you make them. Both were live in
