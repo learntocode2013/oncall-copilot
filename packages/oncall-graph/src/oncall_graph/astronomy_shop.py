@@ -1,178 +1,48 @@
-"""Read-only telemetry from the Astronomy Shop lab.
+"""`LiveShop`: the scripted shop with its three reads pointed at real telemetry.
 
-``promql``, ``log_search``, and ``traces`` are the three tools the solo demo
-calls. Writes, verification, and the other reads stay on the scripted shop.
-Importing this module does not open a connection.
+THE CLIENT MOVED. `AstronomyShop` now lives in
+`oncall_tools.servers.telemetry.client`, because `mcp-telemetry` serves it and
+`make guards` forbids `oncall_tools` from importing `oncall_graph`. It is
+re-exported here so `from oncall_graph.astronomy_shop import AstronomyShop`
+still resolves, and so there is exactly one definition of what a PromQL query
+is -- the thing two `set_flag` definitions cost us in #21.
+
+TWO BEHAVIOURS CHANGED WITH IT, and they change what this class does:
+
+* An unreachable Prometheus, Jaeger or OpenSearch now RAISES
+  `TelemetryUnavailable` instead of returning `{"error": ...}`. A caller that
+  treated the old dict as telemetry would have read a refused connection as an
+  observation. `Solo` has no handler for it, so a dead backend now stops the
+  run instead of quietly producing an unsupported diagnosis.
+* There is no default host. `LiveShop()` with none of PROMETHEUS_URL,
+  JAEGER_URL or OPENSEARCH_URL set raises `TelemetryNotConfigured` rather than
+  querying `10.241.2.69`, a Kubernetes NodePort address from somebody's
+  cluster. Compose sets all three on `oncall-service`, so the container path is
+  unchanged; a host-side `solo_demo` run needs them in the environment, or
+  `LiveShop(host="localhost")` against `make -C deploy up`.
+
+THE TRACE LINES STAY HERE. They are `print`s, and in a stdio MCP server stdout
+is the JSON-RPC channel, so the client logs instead. `LiveShop` keeps printing,
+because `solo_demo` is a terminal demo where that is the whole point.
 """
 
 from __future__ import annotations
 
-import json
-import os
-import re
-from datetime import UTC, datetime, timedelta
-from urllib.error import URLError
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from oncall_tools.servers.telemetry.client import (
+    AstronomyShop,
+    TelemetryNotConfigured,
+    TelemetryUnavailable,
+)
 
 from .meter import say
 from .stubs import Shop
 
-DEFAULT_HOST = "10.241.2.69"
-_SERVICE = re.compile(r"^[A-Za-z0-9_.-]+$")
-_MAX_SERIES = 15
-_MAX_LINES = 20
-_MAX_LINE = 240
-_MAX_TRACES = 20
-
-
-class AstronomyShop:
-    """Prometheus, Jaeger, and OpenSearch telemetry endpoints."""
-
-    def __init__(
-        self,
-        host: str | None = None,
-        minutes: int = 5,
-        *,
-        prometheus_url: str | None = None,
-        jaeger_url: str | None = None,
-        opensearch_url: str | None = None,
-    ):
-        self.minutes = minutes
-        chosen = host or os.environ.get("ASTRONOMY_SHOP_HOST") or DEFAULT_HOST
-        self.prometheus = (
-            prometheus_url or os.environ.get("PROMETHEUS_URL") or f"http://{chosen}:9090"
-        ).rstrip("/")
-        self.jaeger = (
-            jaeger_url or os.environ.get("JAEGER_URL") or f"http://{chosen}:32797/jaeger/ui"
-        ).rstrip("/")
-        self.opensearch = (
-            opensearch_url or os.environ.get("OPENSEARCH_URL") or f"http://{chosen}:32794"
-        ).rstrip("/")
-
-    def _window(self):
-        end = datetime.now(UTC).replace(microsecond=0)
-        start = end - timedelta(minutes=self.minutes)
-        return start, end
-
-    def _get(self, url):
-        say(f"      astronomy shop GET {url}")
-        try:
-            with urlopen(url, timeout=30) as response:
-                return json.load(response)
-        except (URLError, TimeoutError, json.JSONDecodeError) as exc:
-            say(f"      astronomy shop GET failed: {exc}")
-            return {"error": str(exc)}
-
-    def _post(self, url, body):
-        say(f"      astronomy shop POST {url}")
-        request = Request(
-            url,
-            data=json.dumps(body).encode(),
-            headers={"Content-Type": "application/json"},
-        )
-        try:
-            with urlopen(request, timeout=30) as response:
-                return json.load(response)
-        except (URLError, TimeoutError, json.JSONDecodeError) as exc:
-            say(f"      astronomy shop POST failed: {exc}")
-            return {"error": str(exc)}
-
-    def promql(self, query: str) -> dict:
-        """Run one PromQL range query. The series payload stays in this result."""
-        if not isinstance(query, str) or not query.strip():
-            say("      astronomy shop promql skipped: query must be a non-empty string")
-            return {"query": query, "error": "promql query must be a non-empty string"}
-        start, end = self._window()
-        encoded = urlencode(
-            {
-                "query": query,
-                "start": int(start.timestamp()),
-                "end": int(end.timestamp()),
-                "step": 60,
-            }
-        )
-        payload = self._get(f"{self.prometheus}/api/v1/query_range?{encoded}")
-        if payload.get("error") and payload.get("status") != "success":
-            say(f"      astronomy shop promql error: {payload.get('error')}")
-            return {"query": query, "error": str(payload.get("error"))}
-        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
-        series = []
-        for item in (data.get("result") or [])[:_MAX_SERIES]:
-            if not isinstance(item, dict):
-                continue
-            values = item.get("values") or []
-            last = values[-1] if values else None
-            series.append({"metric": item.get("metric") or {}, "value": last})
-        say(f"      astronomy shop promql ok series={len(series)} query={query!r}")
-        return {
-            "query": query,
-            "result_type": data.get("resultType"),
-            "series": series,
-        }
-
-    def log_search(self, service: str, query: str = "") -> dict:
-        """Recent log lines for one service. The lines are data for this turn."""
-        if not isinstance(service, str) or not _SERVICE.match(service):
-            say(f"      astronomy shop log_search skipped: service {service!r} is not allow-listed")
-            return {"service": service, "query": query, "error": "service name is not allow-listed"}
-        filters = [
-            {"term": {"resource.service.name": service}},
-            {"range": {"@timestamp": {"gte": f"now-{self.minutes}m"}}},
-        ]
-        if isinstance(query, str) and query.strip():
-            filters.append({"match_phrase": {"body": query}})
-        payload = self._post(
-            f"{self.opensearch}/otel-logs-*/_search",
-            {
-                "size": _MAX_LINES,
-                "sort": [{"@timestamp": "desc"}],
-                "track_total_hits": True,
-                "_source": ["@timestamp", "severity.text", "body", "traceId"],
-                "query": {"bool": {"filter": filters}},
-            },
-        )
-        if payload.get("error") and "hits" not in payload:
-            say(f"      astronomy shop log_search error: {payload['error']}")
-            return {"service": service, "query": query, "error": str(payload["error"])}
-        hits = (payload.get("hits") or {}) if isinstance(payload.get("hits"), dict) else {}
-        total = hits.get("total")
-        if isinstance(total, dict):
-            total = total.get("value")
-        lines = []
-        for hit in (hits.get("hits") or [])[:_MAX_LINES]:
-            source = hit.get("_source") if isinstance(hit, dict) else None
-            if not isinstance(source, dict):
-                continue
-            body = str(source.get("body") or "")[:_MAX_LINE]
-            lines.append(
-                f"{source.get('@timestamp') or ''} {source.get('severity.text') or ''} {body}".strip()
-            )
-        say(f"      astronomy shop log_search ok service={service!r} total={total or 0}")
-        return {"service": service, "query": query or "", "total": total or 0, "lines": lines}
-
-    def traces(self, service: str, search_depth: int = _MAX_TRACES) -> dict:
-        """Recent trace ids for one service. Span bodies stay on Jaeger."""
-        if not isinstance(service, str) or not _SERVICE.match(service):
-            say(f"      astronomy shop traces skipped: service {service!r} is not allow-listed")
-            return {"service": service, "error": "service name is not allow-listed"}
-        start, end = self._window()
-        encoded = urlencode(
-            {
-                "query.serviceName": service,
-                "query.startTimeMin": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "query.startTimeMax": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "query.searchDepth": search_depth,
-            }
-        )
-        payload = self._get(f"{self.jaeger}/api/v3/traces?{encoded}")
-        if payload.get("error") and not isinstance(payload.get("data"), (dict, list)):
-            say(f"      astronomy shop traces error: {payload['error']}")
-            return {"service": service, "error": str(payload["error"])}
-        found: list[str] = []
-        _collect_trace_ids(payload, found)
-        say(f"      astronomy shop traces ok service={service!r} count={len(found)}")
-        return {"service": service, "count": len(found), "trace_ids": found}
+__all__ = [
+    "AstronomyShop",
+    "LiveShop",
+    "TelemetryNotConfigured",
+    "TelemetryUnavailable",
+]
 
 
 class LiveShop(Shop):
@@ -183,30 +53,16 @@ class LiveShop(Shop):
         self.telemetry = AstronomyShop(host=host, minutes=minutes)
 
     def promql(self, query: str) -> dict:
+        say(f"      astronomy shop promql query={query!r}")
         self.reads.append(("promql", {"query": query}))
         return self.telemetry.promql(query)
 
     def log_search(self, service: str, query: str = "") -> dict:
+        say(f"      astronomy shop log_search service={service!r}")
         self.reads.append(("log_search", {"service": service, "query": query}))
         return self.telemetry.log_search(service, query)
 
     def traces(self, service: str) -> dict:
+        say(f"      astronomy shop traces service={service!r}")
         self.reads.append(("traces", {"service": service}))
         return self.telemetry.traces(service)
-
-
-def _collect_trace_ids(payload, found: list[str]) -> None:
-    if len(found) >= _MAX_TRACES:
-        return
-    if isinstance(payload, dict):
-        for key, value in payload.items():
-            if key.lower() in {"traceid", "trace_id"} and isinstance(value, str):
-                if value not in found:
-                    found.append(value)
-            else:
-                _collect_trace_ids(value, found)
-    elif isinstance(payload, list):
-        for item in payload:
-            _collect_trace_ids(item, found)
-            if len(found) >= _MAX_TRACES:
-                return

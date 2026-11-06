@@ -31,6 +31,7 @@ from mcp.client import Client
 from oncall_contracts.flagd import current_variant, read_document
 from oncall_tools.registry import SERVERS, TRANSPORT_ENV, ToolCallError, _stdio_env, load_tools
 from oncall_tools.servers.ops_actions import FLAG_PATH_ENV, build_server
+from oncall_tools.servers.telemetry import CONFIG_ENV
 
 REPO = Path(__file__).resolve().parents[3]
 REAL = REPO / "deploy" / "flagd" / "demo.flagd.json"
@@ -156,3 +157,76 @@ def test_an_approved_write_over_stdio_edits_the_live_document(live_document, mon
     assert hashlib.sha256(REAL.read_bytes()).hexdigest() == baseline, (
         f"the server wrote {REAL}, the committed baseline, instead of the live document"
     )
+
+
+# --- the telemetry server, spawned -------------------------------------
+
+
+@pytest.fixture
+def spawned_telemetry(monkeypatch):
+    """The telemetry server as a REAL subprocess, pointed at a dead port.
+
+    `127.0.0.1:1` cannot be listening, which is the point: this fixture tests
+    the path from an unreachable backend to the agent's hands, and that path is
+    exactly where the write server lost its refusal text. Nothing here reaches
+    the network beyond a refused TCP connect on loopback.
+
+    The three URLs are set in THIS process's environment, so the test only
+    passes if `ServerSpec.env` forwards them to the child -- `ops_actions`
+    silently lost `FLAGD_CONFIG` the same way and wrote the wrong file.
+    """
+    monkeypatch.setenv("PROMETHEUS_URL", "http://127.0.0.1:1")
+    monkeypatch.setenv("JAEGER_URL", "http://127.0.0.1:1")
+    monkeypatch.setenv("OPENSEARCH_URL", "http://127.0.0.1:1")
+    with load_tools("stdio", servers=["telemetry"]) as registry:
+        yield registry
+
+
+def test_a_spawned_telemetry_server_serves_three_reads(spawned_telemetry):
+    """It starts at all. The server resolves its endpoints while building, so a
+    child that never received the three URLs exits instead of answering, and
+    `load_tools` fails here rather than on the first query."""
+    assert sorted(spawned_telemetry.names) == ["log_search", "promql", "traces"]
+    assert spawned_telemetry.writes().names == []
+
+
+def test_an_unreachable_backend_reaches_the_agent_with_its_reason(spawned_telemetry):
+    """The #20 shape, checked across a real process boundary.
+
+    A `TelemetryUnavailable` that escaped as itself would arrive as a bare
+    "Error executing tool promql" with the cause left in the child's stderr.
+    The URL in the message is what makes it actionable: it says WHICH backend.
+    """
+    with pytest.raises(ToolCallError) as caught:
+        spawned_telemetry["promql"].invoke({"query": "up"})
+
+    detail = str(caught.value)
+    assert "127.0.0.1:1" in detail, f"the agent cannot tell which backend failed: {detail}"
+    assert "promql" in detail
+
+
+def test_a_refused_service_name_reaches_the_agent_too(spawned_telemetry):
+    with pytest.raises(ToolCallError, match="not a service name"):
+        spawned_telemetry["traces"].invoke({"service": "pay ment"})
+
+
+def test_the_telemetry_spec_names_every_variable_the_client_reads():
+    """Three variables is three chances to repeat `FLAGD_CONFIG`. The server
+    module owns the list and the registry spells it out, so this is the test
+    that stands in for the compiler."""
+    assert set(SERVERS["telemetry"].env) == set(CONFIG_ENV)
+
+
+def test_the_read_servers_are_told_nothing_about_the_writable_document(monkeypatch):
+    """Least privilege across all three servers, not just the two in #20."""
+    monkeypatch.setenv(FLAG_PATH_ENV, "/somewhere/demo.flagd.json")
+
+    assert FLAG_PATH_ENV not in _stdio_env(SERVERS["telemetry"])
+    assert FLAG_PATH_ENV not in _stdio_env(SERVERS["runbooks"])
+
+
+def test_the_write_server_is_told_nothing_about_telemetry(monkeypatch):
+    """And the other direction: ops_actions has no business querying Prometheus."""
+    monkeypatch.setenv("PROMETHEUS_URL", "http://prometheus:9090")
+
+    assert "PROMETHEUS_URL" not in _stdio_env(SERVERS["ops_actions"])

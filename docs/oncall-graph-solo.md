@@ -181,7 +181,7 @@ uv run python -m oncall_graph.solo_demo
 
 `Solo()` builds the OpenRouter client before the first call. The key has to be in the environment when the process starts. The model is `openai/gpt-4o-mini` (`SPECIALIST_MODEL` in `oncall_graph.config`). The tool budget is 5. The checkpointer thread id is `astronomy-demo`. The alert text is the `ALERT` constant in `solo_demo.py`.
 
-`promql`, `log_search`, and `traces` read the Astronomy Shop lab. The default host is `10.241.2.69`. Set `ASTRONOMY_SHOP_HOST` to point the three clients at another host. The window is the last five minutes.
+`promql`, `log_search`, and `traces` read the Astronomy Shop lab. **There is no default host**: set `ASTRONOMY_SHOP_HOST=localhost` against `make -C deploy up`, or the three URLs individually, or construct `LiveShop(host="localhost")`. Without them `LiveShop()` raises `TelemetryNotConfigured` rather than querying `10.241.2.69`, a NodePort address of a cluster that is not this stack. An unreachable backend now raises `TelemetryUnavailable` instead of returning `{"error": ...}`. The window is the last five minutes.
 
 | Tool | Lab endpoint |
 |---|---|

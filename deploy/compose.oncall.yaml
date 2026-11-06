@@ -223,6 +223,52 @@ services:
       start_period: 60s
     restart: unless-stopped
 
+  # OUR SERVICE. Read-only telemetry: PromQL, logs and trace ids.
+  #
+  # The three URLs are REQUIRED, not defaulted. The client this server wraps
+  # used to fall back to http://10.241.2.69 -- a NodePort address of a
+  # Kubernetes cluster that is not this stack -- and because these three
+  # variables were always set on oncall-service, the wrong default was
+  # invisible in Docker and wrong on every developer machine. The server now
+  # refuses to start without them, so a typo here fails the health check
+  # instead of answering every query against a host nobody owns.
+  #
+  # Jaeger on 16686 and OpenSearch on 9200 are the IN-NETWORK ports. Those are
+  # not the ports `make verify` uses from the host, and they are not what the
+  # old defaults said either.
+  mcp-telemetry:
+    build:
+      context: ${ONCALL_ROOT:?set ONCALL_ROOT to the repo root}
+      dockerfile: packages/oncall-tools/Dockerfile.telemetry
+    container_name: mcp-telemetry
+    ports:
+      - "8101:8101"
+    environment:
+      PROMETHEUS_URL: http://prometheus:9090
+      JAEGER_URL: http://jaeger:16686/jaeger/ui
+      OPENSEARCH_URL: http://opensearch:9200
+    # Not service_healthy: this server opens no connection while starting, so
+    # it is correct for it to come up before its backends and report per-query
+    # that one is unreachable. Requiring them healthy would make a telemetry
+    # outage look like a broken tool server.
+    depends_on:
+      - prometheus
+      - jaeger
+      - opensearch
+    # A TCP probe, not an MCP call: MCP's streamable-http endpoint needs a POST
+    # with specific headers, so a GET-based check reports unhealthy on a working
+    # server. `sh` is dash in this image and cannot do /dev/tcp, so bash is
+    # invoked explicitly.
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8101'"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      # No model and no corpus, so startup is resolving three URLs and binding
+      # a port. Shorter than mcp-ops-actions' 20s, which reads the corpus.
+      start_period: 10s
+    restart: unless-stopped
+
   # THE ONLY WRITE SERVER. Network reachability is not the control: in this mode
   # mcp-ops-actions is just another container on this network and any agent
   # could reach it. What stops a diagnosis agent calling it is

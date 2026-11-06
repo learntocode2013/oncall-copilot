@@ -253,7 +253,13 @@ def test_every_package_has_a_codeowner() -> None:
 #: Servers that must serve nothing but reads. `ops_actions` is deliberately not
 #: here and must never be added: it is the ONE write server, and the control on
 #: it is `for_role` plus the approval gate, not a claim that it serves no writes.
-READ_ONLY_SERVERS = frozenset({"runbooks"})
+#:
+#: `telemetry` belongs here for a reason worth stating: a read of production is
+#: not a harmless operation, and a PromQL query can be expensive. What makes it
+#: a read is that it changes nothing an incident is judged by -- no flag, no
+#: replica count, no ticket. Anything on that server that acquires a side
+#: effect must leave this set in the same commit.
+READ_ONLY_SERVERS = frozenset({"runbooks", "telemetry"})
 
 
 def _in_process_registry():
@@ -267,12 +273,17 @@ def _in_process_registry():
     from oncall_tools.registry import load_tools
     from oncall_tools.servers.ops_actions import build_server as ops_server
     from oncall_tools.servers.runbooks_kb import build_server as runbooks_server
+    from oncall_tools.servers.telemetry import build_server as telemetry_server
 
     def connect(server):
         if server.name == "runbooks":
             return Client(runbooks_server(semantic=False))
         if server.name == "ops_actions":
             return Client(ops_server())
+        if server.name == "telemetry":
+            # `.invalid` is reserved and cannot resolve: the endpoints are
+            # built, nothing is reached.
+            return Client(telemetry_server(host="telemetry.invalid"))
         raise AssertionError(f"no in-process client for {server.name!r}: add one here")
 
     return load_tools(connect=connect)
@@ -526,3 +537,36 @@ def test_every_index_entry_comes_from_the_data_tree() -> None:
 
         assert "data" in parts, f"{entry.document_id} was indexed from {entry.source_path}"
         assert "eval" not in parts, f"{entry.document_id} was indexed from eval/"
+
+
+def test_every_mcp_server_has_a_compose_service_and_a_verify_line() -> None:
+    """`deploy/compose.oncall.yaml` opens with this rule in a comment:
+
+        Every service added here must add its health check to `make verify` in
+        the same commit so `make up --wait` remains trustworthy.
+
+    Nothing enforced it. A server in `SERVERS` with no Compose service is
+    unreachable under `MCP_TRANSPORT=http` and the agent cannot say why; a
+    service with no `verify` line is one `make -C deploy up` reports as
+    successful without ever having asked it anything -- which is how the lab
+    shipped broken behind five green checks in #19.
+
+    Checked against the port, not just the name: a service that exists under
+    the right name on the wrong port passes a name check and fails in Docker.
+    """
+    compose = (ROOT / "deploy" / "compose.oncall.yaml").read_text(encoding="utf-8")
+    verify = (ROOT / "deploy" / "Makefile").read_text(encoding="utf-8")
+
+    from oncall_tools.registry import SERVERS
+
+    missing: list[str] = []
+    for name, spec in sorted(SERVERS.items()):
+        service = f"mcp-{name.replace('_', '-')}"
+        if not re.search(rf"^  {re.escape(service)}:$", compose, re.MULTILINE):
+            missing.append(f"{service} has no service in deploy/compose.oncall.yaml")
+        if f'"{spec.port}:{spec.port}"' not in compose:
+            missing.append(f"{service} does not publish port {spec.port}")
+        if f"localhost:{spec.port}/mcp" not in verify:
+            missing.append(f"`make -C deploy verify` never asks {service} on port {spec.port}")
+
+    assert not missing, "a server that nothing checks:\n  " + "\n  ".join(missing)

@@ -60,10 +60,10 @@ class ServerSpec:
 
     ONLY SERVERS THAT EXIST ARE LISTED. The October plan names four --
     telemetry (8101), runbooks (8102), tickets (8103) and ops_actions (8104,
-    the only write server) -- and three are unwritten. Listing an unwritten
-    server would make `load_tools()` fail for everyone until all four landed,
-    or, worse, make it return fewer tools than it claimed. Adding a server is
-    one entry here, in the commit that adds the server.
+    the only write server) -- and `tickets` is still unwritten. Listing an
+    unwritten server would make `load_tools()` fail for everyone until all four
+    landed, or, worse, make it return fewer tools than it claimed. Adding a
+    server is one entry here, in the commit that adds the server.
     """
 
     name: str
@@ -79,6 +79,17 @@ class ServerSpec:
 
 
 SERVERS: Mapping[str, ServerSpec] = {
+    # Three URLs, not one host: Compose gives this server its endpoints by
+    # service name, and a stdio server spawned on a developer's machine needs
+    # the same three from their environment. `telemetry.CONFIG_ENV` names them
+    # on the server side and `test_telemetry_env_matches_the_registry` pins the
+    # two lists to each other -- the drift `ops_actions` shipped in PR #20.
+    "telemetry": ServerSpec(
+        "telemetry",
+        "oncall_tools.servers.telemetry",
+        8101,
+        env=("PROMETHEUS_URL", "JAEGER_URL", "OPENSEARCH_URL", "ASTRONOMY_SHOP_HOST"),
+    ),
     "runbooks": ServerSpec("runbooks", "oncall_tools.servers.runbooks_kb", 8102),
     # The only write server. It is in the registry like any other -- what keeps
     # its tools away from a diagnosis agent is `permissions.for_role`, not

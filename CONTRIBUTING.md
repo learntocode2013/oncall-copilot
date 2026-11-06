@@ -251,6 +251,65 @@ write, so forgetting to annotate withholds a tool rather than trusting it.
 bound to a tool name would let `set_flag adFailure on` run because someone approved
 `set_flag paymentFailure off`.
 
+## `mcp-telemetry`: the three reads
+
+Port 8101. Three tools, all reads, none gated — nothing on this server changes anything an
+incident is judged by.
+
+```python
+promql(query)  # last value per series, 15 series max
+log_search(service, query="")  # 20 lines max, 240 chars each
+traces(service)  # trace ids and a count; spans stay on Jaeger
+```
+
+The client it wraps **moved here from `oncall_graph.astronomy_shop`**, and the move was forced:
+`make guards` lets `oncall_tools` import `oncall_contracts` and `oncall_knowledge` and nothing
+else, so the server could not have wrapped P2's class. `oncall_graph` *may* import `oncall_tools`,
+so `LiveShop` reads it back and there is one definition rather than two that never have to agree.
+
+### Three URLs, and no default for any of them
+
+```yaml
+PROMETHEUS_URL: http://prometheus:9090
+JAEGER_URL:     http://jaeger:16686/jaeger/ui
+OPENSEARCH_URL: http://opensearch:9200
+```
+
+The server **refuses to start** if one is missing, naming every absent variable at once. It used
+to default to `http://10.241.2.69:9090`, with Jaeger on `32797` and OpenSearch on `32794` — the
+NodePorts of a Kubernetes cluster that is not this stack. Compose has always set all three on
+`oncall-service`, so the wrong default was invisible in Docker and wrong on every developer
+machine. `ASTRONOMY_SHOP_HOST`, or `--telemetry-host HOST`, is the shorthand for one machine
+serving all three on the published ports — a convenience, not a default, since unset it assumes
+nothing. `--host` is `_serve`'s *bind* address, which is why they are different flags.
+
+### An unreachable backend is an error, not an empty result
+
+`promql` against a dead Prometheus **raises**, and the `ToolError` names the URL that failed. It
+does not return `{"error": ...}`, which is what the client did before the move — and an agent
+handed that dict reads it as telemetry and concludes the metric is quiet. `series: []` still means
+"Prometheus matched nothing", which is a real answer; the two cases must not look alike.
+
+Resolving the endpoints is not connecting, so the server comes up with every backend down and
+reports per query which one is unreachable. `depends_on` is therefore plain, not `service_healthy`:
+a telemetry outage must not read as a broken tool server.
+
+### It logs, and never prints
+
+In a stdio server **stdout is the JSON-RPC channel**. The client this moved from traced through
+`oncall_graph.meter.say`, which is a `print`; one of those lines interleaved with a response would
+corrupt the session's framing, and the symptom would surface nowhere near the cause. The client
+uses a module logger. The trace lines the terminal demo shows now come from `LiveShop`, in P2's
+package, where stdout is harmless.
+
+### What this server does not do
+
+It does not interpret. No tool here says whether an error rate is high, which service is at fault,
+or whether a cause is local. That matters more than it sounds: the scripted shop answers `fault`,
+`local_cause` and `error_rate`, and `handoffs.py` reads **exactly those three keys** — so a live
+run extracts no evidence from real telemetry and raises nothing while doing it. Deciding where
+interpretation belongs is P2's call, not something to settle by quietly adding a verdict to a read.
+
 ## `mcp-ops-actions`: the only write server
 
 Port 8104. Two tools, both writes, both approval-gated. See
