@@ -27,9 +27,37 @@ READ_TOOLS = (
 ACTION_TOOLS = ("set_flag", "restart", "scale", "rollback")
 KNOWN_TOOLS = READ_TOOLS + ACTION_TOOLS
 
+#: The tool that restores a flag to an earlier variant. DELIBERATELY NOT IN
+#: `ACTION_TOOLS`: a model may not propose a re-arm, and `validate_action`
+#: rejects it as an unknown action. Only `monitor.code_rollback` names it, which
+#: is the same split `mcp-ops-actions` enforces server-side -- one tool that can
+#: only clear a fault, one that can restore one, so "undo" never reads as "fix".
+ROLLBACK_FLAG_TOOL = "rollback_flag"
+#: Everything `Shop.apply` will run: the proposable actions plus the code-only
+#: inverse above.
+WRITE_TOOLS = ACTION_TOOLS + (ROLLBACK_FLAG_TOOL,)
+
+
+class Variant(str):
+    """A flagd variant NAME, which is not an allow-listed identifier.
+
+    `set_flag` used to take `enabled: bool`, and a boolean needs no pattern. The
+    real flags are not two-valued: the corpus names `off`, `on`, `100%`, `1000x`
+    and `10sec`, and `_TOKEN` -- which every other string argument is checked
+    against -- rejects three of those five for starting with a digit or carrying
+    a `%`. Validating a variant as a token would therefore accept every fix and
+    refuse every rollback, which is a failure that only appears while undoing.
+
+    So variants get `_VARIANT`: wider than a token, still no whitespace and none
+    of the characters a shell reads. The authoritative list lives in the runbook
+    corpus, which this package may not import, and `mcp-ops-actions` checks
+    against it -- this is the shape check that runs before the wire.
+    """
+
+
 # Typed arguments the executor will accept. Totals and shell strings are not here.
 ACTION_ARGS = {
-    "set_flag": {"flag": str, "enabled": bool},
+    "set_flag": {"flag": str, "variant": Variant},
     "restart": {"service": str},
     "scale": {"service": str, "replicas": int},
     "rollback": {"service": str},
@@ -42,13 +70,19 @@ def default_rollback(action, args):
         raise ValueError(f"unknown action: {action!r}")
     args = dict(args or {})
     if action == "set_flag":
-        enabled = args.get("enabled")
+        # THE INVERSE IS NO LONGER COMPUTABLE HERE. With a boolean it was `not
+        # enabled`; with a variant there is no `not "100%"`, and the variant that
+        # re-arms a fault is named by the runbook -- which this package may not
+        # read. So this returns the procedure, and `monitor.code_rollback` builds
+        # the actual call from the `previous` variant the forward write reported.
+        # That is exact where negation was only ever an assumption.
         flag = args.get("flag")
-        if not isinstance(enabled, bool):
-            raise ValueError("set_flag.enabled must be a boolean")
+        variant = args.get("variant")
         if not isinstance(flag, str) or not flag.strip():
             raise ValueError("set_flag.flag must be a non-empty string")
-        return f"set_flag {flag} enabled={str(not enabled).lower()}"
+        if not isinstance(variant, str) or not variant.strip():
+            raise ValueError("set_flag.variant must be a non-empty string")
+        return f"rollback_flag {flag} to its previous variant"
     service = args.get("service")
     if not isinstance(service, str) or not service.strip():
         raise ValueError(f"{action}.service must be a non-empty string")
@@ -56,6 +90,10 @@ def default_rollback(action, args):
 
 
 _TOKEN = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
+# Variant names: may start with a digit and may carry `%`, `.` or `-`. No
+# whitespace and nothing a shell reads, so `_reject_shell` still has nothing
+# left to find here. See `Variant`.
+_VARIANT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.%-]*$")
 # Strong shell markers. These are commands even inside a read-tool argument.
 _SHELL_HARD = re.compile(
     r"docker\s+exec|docker\s+run|\b(?:ba)?sh\s+-c\b|&&|\|\||`|\$\(",
@@ -94,15 +132,17 @@ def _reject_shell(value, *, action):
 
 
 def _typed_arg(tool, key, value, typ):
-    if typ is bool:
-        if not isinstance(value, bool):
-            raise ValueError(f"{tool}.{key} must be a boolean")
-        return value
     if typ is int:
         if isinstance(value, bool) or not isinstance(value, int):
             raise ValueError(f"{tool}.{key} must be an integer")
         if key == "replicas" and value < 1:
             raise ValueError(f"{tool}.{key}={value} is outside the allow-list")
+        return value
+    if typ is Variant:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{tool}.{key} must be a non-empty string")
+        if not _VARIANT.match(value):
+            raise ValueError(f"{tool}.{key}={value!r} is not a variant name")
         return value
     if typ is str:
         if not isinstance(value, str) or not value.strip():

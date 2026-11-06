@@ -21,9 +21,9 @@ ALERT = (
 
 PAYMENT_ACTION = {
     "action": "set_flag",
-    "args": {"flag": "paymentFailure", "enabled": False},
+    "args": {"flag": "paymentFailure", "variant": "off"},
     "expected_effect": "checkout error rate falls below 5%",
-    "rollback": "set_flag paymentFailure enabled=true",
+    "rollback": "rollback_flag paymentFailure to its previous variant",
 }
 
 
@@ -100,7 +100,7 @@ def _payment_steps():
             "set_flag",
             {
                 "flag": "paymentFailure",
-                "enabled": False,
+                "variant": "off",
                 "expected_effect": "checkout error rate falls below 5%",
             },
             "c3",
@@ -133,12 +133,12 @@ def test_payment_failure_fixture_and_reads_do_not_write():
     logs = tools["log_search"].invoke({"service": "checkout", "query": "error"})
     text = " ".join(logs["lines"])
     assert "HTTP 422" in text
-    assert "paymentFailure is enabled (enabled=true)" in text
+    assert "paymentFailure variant is 100%" in text
     assert "restart" not in text.lower()
     draft = tools["status_draft"].invoke({"note": "investigating"})
     assert draft["sent"] is False
     assert shop.writes == []
-    assert shop.flags["paymentFailure"] is True
+    assert shop.flags["paymentFailure"] == "100%"
 
 
 def test_proposing_an_action_does_not_change_the_shop():
@@ -148,17 +148,17 @@ def test_proposing_an_action_does_not_change_the_shop():
         result = tool.invoke(
             {
                 "flag": "paymentFailure",
-                "enabled": False,
+                "variant": "off",
                 "expected_effect": "checkout error rate falls below 5%",
             }
         )
         action = box["proposals"][0]
     assert result["executed"] is False
-    assert result["args"] == {"flag": "paymentFailure", "enabled": False}
+    assert result["args"] == {"flag": "paymentFailure", "variant": "off"}
     assert action["action"] == "set_flag"
-    assert action["rollback"] == "set_flag paymentFailure enabled=true"
+    assert action["rollback"] == "rollback_flag paymentFailure to its previous variant"
     assert shop.writes == []
-    assert shop.flags["paymentFailure"] is True
+    assert shop.flags["paymentFailure"] == "100%"
 
 
 def test_execute_refuses_a_hash_mismatch_and_runs_a_match():
@@ -171,7 +171,7 @@ def test_execute_refuses_a_hash_mismatch_and_runs_a_match():
     out = execute_action_code(refused, shop)
     assert out["status"] == "APPROVAL_MISMATCH"
     assert shop.writes == []
-    assert shop.flags["paymentFailure"] is True
+    assert shop.flags["paymentFailure"] == "100%"
 
     accepted = new_incident(plan={"stage": "act"}, proposed_action=PAYMENT_ACTION)
     digest = payload_hash(command_payload(accepted["proposed_action"]))
@@ -181,10 +181,10 @@ def test_execute_refuses_a_hash_mismatch_and_runs_a_match():
     assert shop.writes == [
         {
             "tool": "set_flag",
-            "args": {"flag": "paymentFailure", "enabled": False},
+            "args": {"flag": "paymentFailure", "variant": "off"},
         }
     ]
-    assert shop.flags["paymentFailure"] is False
+    assert shop.flags["paymentFailure"] == "off"
     verified = verify_metrics(accepted, shop)
     assert verified["verification"]["recovered"] is True
     assert verified["status"] == "RECOVERED"
@@ -198,10 +198,10 @@ def test_approve_runs_the_exact_command_and_verifies_recovery():
     assert DEFAULT_TOOL_BUDGET in TOOL_BUDGETS
     assert solo.shop.writes == []
     assert solo.shop.restarts == []
-    assert solo.shop.flags["paymentFailure"] is True
+    assert solo.shop.flags["paymentFailure"] == "100%"
     action = paused["proposed_action"]
     assert action["action"] == "set_flag"
-    assert action["args"] == {"flag": "paymentFailure", "enabled": False}
+    assert action["args"] == {"flag": "paymentFailure", "variant": "off"}
     intr = interrupt_value(paused)
     assert intr["command"] == {"action": "set_flag", "args": action["args"]}
     assert intr["expected_effect"] == action["expected_effect"]
@@ -226,11 +226,11 @@ def test_approve_runs_the_exact_command_and_verifies_recovery():
     assert solo.shop.writes == [
         {
             "tool": "set_flag",
-            "args": {"flag": "paymentFailure", "enabled": False},
+            "args": {"flag": "paymentFailure", "variant": "off"},
         }
     ]
     assert solo.shop.restarts == []
-    assert solo.shop.flags["paymentFailure"] is False
+    assert solo.shop.flags["paymentFailure"] == "off"
     assert "approval matched" in texts(done)
     assert "executed set_flag" in texts(done)
     assert "verify recovered=True" in texts(done)
@@ -244,7 +244,7 @@ def test_reject_writes_nothing():
     assert done["status"] == "REJECTED"
     assert interrupt_value(done) is None
     assert solo.shop.writes == []
-    assert solo.shop.flags["paymentFailure"] is True
+    assert solo.shop.flags["paymentFailure"] == "100%"
     assert "approval rejected" in texts(done)
 
 
@@ -277,7 +277,7 @@ def test_an_edit_interrupts_again_and_the_old_hash_does_not_run():
     done, _ = solo.run(resume={"decision": "approve"})
     assert solo.shop.writes[0] == {"tool": "restart", "args": {"service": "payment"}}
     assert all(item["tool"] != "set_flag" for item in solo.shop.writes)
-    assert solo.shop.flags["paymentFailure"] is True
+    assert solo.shop.flags["paymentFailure"] == "100%"
     assert "rollback" in texts(done)
 
 
@@ -306,7 +306,7 @@ def test_failed_verification_rolls_back_then_replans():
     ]
     assert solo.shop.restarts == ["payment"]
     assert solo.shop.rollbacks == ["payment"]
-    assert solo.shop.flags["paymentFailure"] is True
+    assert solo.shop.flags["paymentFailure"] == "100%"
     assert done["verification"]["recovered"] is False
     assert done["pending_rollback"] == {
         "tool": "rollback",

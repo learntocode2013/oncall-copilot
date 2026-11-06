@@ -81,9 +81,9 @@ The solo model does not write a hypothesis. During step 4 it called one proposal
 ```python
 {
     "action": "set_flag",
-    "args": {"flag": "paymentFailure", "enabled": False},
+    "args": {"flag": "paymentFailure", "variant": "off"},
     "expected_effect": "checkout error rate falls under 5%",
-    "rollback": "set_flag paymentFailure enabled=true",
+    "rollback": "rollback_flag paymentFailure to its previous variant",
 }
 ```
 

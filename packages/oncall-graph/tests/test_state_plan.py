@@ -12,9 +12,9 @@ from oncall_graph.state import new_incident
 
 PAYMENT_ACTION = {
     "action": "set_flag",
-    "args": {"flag": "paymentFailure", "enabled": False},
+    "args": {"flag": "paymentFailure", "variant": "off"},
     "expected_effect": "checkout error rate falls below 5%",
-    "rollback": "set_flag paymentFailure enabled=true",
+    "rollback": "rollback_flag paymentFailure to its previous variant",
 }
 
 CHECKOUT_HYPOTHESIS = {
@@ -65,9 +65,9 @@ def test_validate_plan_accepts_one_typed_action():
         "steps": [{"tool": "traces", "args": {"service": "payment"}}],
     }
     assert action["action"] == "set_flag"
-    assert action["args"] == {"flag": "paymentFailure", "enabled": False}
+    assert action["args"] == {"flag": "paymentFailure", "variant": "off"}
     assert action["expected_effect"].startswith("checkout error rate")
-    assert action["rollback"] == "set_flag paymentFailure enabled=true"
+    assert action["rollback"] == "rollback_flag paymentFailure to its previous variant"
     assert hypotheses[0]["evidence_refs"] == ["error-rate-5m"]
     visible = format_plan(plan, hypotheses, action)
     assert "[act]" in visible
@@ -93,7 +93,7 @@ def test_validate_plan_rejects_unknown_shell_and_a_second_action():
         validate_action(
             {
                 **PAYMENT_ACTION,
-                "args": {"flag": "paymentFailure", "enabled": False, "command": "true"},
+                "args": {"flag": "paymentFailure", "variant": "off", "command": "true"},
             }
         )
 
@@ -105,8 +105,18 @@ def test_validate_plan_rejects_unknown_shell_and_a_second_action():
 
 
 def test_validate_plan_rejects_mistyped_args_and_keeps_refs_not_log_lines():
-    with pytest.raises(ValueError, match="boolean"):
-        validate_action({**PAYMENT_ACTION, "args": {"flag": "paymentFailure", "enabled": "false"}})
+    with pytest.raises(ValueError, match="non-empty string"):
+        validate_action({**PAYMENT_ACTION, "args": {"flag": "paymentFailure", "variant": 100}})
+
+    # A variant is checked against a wider pattern than a token, because `100%`
+    # and `10sec` are real variant names. Wider is not unchecked.
+    for bad in ("off off", "-off", "off;id", "off|id"):
+        with pytest.raises(ValueError, match="not a variant name|shell-shaped"):
+            validate_action({**PAYMENT_ACTION, "args": {"flag": "paymentFailure", "variant": bad}})
+
+    # And `flag` is still a token, so the wider rule did not leak across.
+    with pytest.raises(ValueError, match="not an allow-listed name"):
+        validate_action({**PAYMENT_ACTION, "args": {"flag": "100%", "variant": "off"}})
 
     hypotheses = validate_hypotheses(
         [
@@ -217,6 +227,13 @@ def test_failed_verification_rolls_back_in_code_then_replans():
         plan={"stage": "verify"},
         hypotheses=[PAYMENT_HYPOTHESIS],
         proposed_action=PAYMENT_ACTION,
+        # The inverse is no longer derived from the action alone: `not enabled`
+        # assumed two states, so the rollback now restores the variant the write
+        # reported replacing. `execute_action_code` always leaves that here.
+        last={
+            "step": {"tool": "set_flag", "args": {"flag": "paymentFailure", "variant": "off"}},
+            "result": {"ok": True, "previous": "100%", "variant": "off", "changed": True},
+        },
         verification={
             "recovered": False,
             "signal": "checkout_error_rate",
@@ -229,8 +246,8 @@ def test_failed_verification_rolls_back_in_code_then_replans():
     assert texts(out)[0] == "rollback"
     assert "monitor -> replan" in texts(out)
     assert out["pending_rollback"] == {
-        "tool": "set_flag",
-        "args": {"flag": "paymentFailure", "enabled": True},
+        "tool": "rollback_flag",
+        "args": {"flag": "paymentFailure", "variant": "100%"},
     }
     assert out["proposed_action"] is None
     assert out["revisions"] == 1
@@ -281,6 +298,10 @@ def test_verification_failure_at_the_budget_cap_stops_after_rollback():
         plan={"stage": "verify"},
         hypotheses=[PAYMENT_HYPOTHESIS],
         proposed_action=PAYMENT_ACTION,
+        last={
+            "step": {"tool": "set_flag", "args": {"flag": "paymentFailure", "variant": "off"}},
+            "result": {"ok": True, "previous": "100%", "variant": "off", "changed": True},
+        },
         verification={
             "recovered": False,
             "signal": "checkout_error_rate",
@@ -294,7 +315,10 @@ def test_verification_failure_at_the_budget_cap_stops_after_rollback():
     assert update["status"] == "ESCALATED"
     assert texts(update)[0] == "rollback"
     assert "monitor -> stop" in texts(update)
-    assert update["pending_rollback"]["args"]["enabled"] is True
+    assert update["pending_rollback"] == {
+        "tool": "rollback_flag",
+        "args": {"flag": "paymentFailure", "variant": "100%"},
+    }
 
 
 def test_ready_when_the_evidence_supports_the_hypothesis():
