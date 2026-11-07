@@ -649,6 +649,7 @@ def test_make_up_builds_every_image_we_define() -> None:
     to build, and `build:` is what tells them from the six demo services this
     file merely patches.
     """
+    import os
     import subprocess
 
     import yaml
@@ -659,11 +660,19 @@ def test_make_up_builds_every_image_we_define() -> None:
         "no service in deploy/compose.oncall.yaml declares build: this guard has gone vacuous"
     )
 
+    # `--no-print-directory`, and MAKELEVEL out of the environment, because this
+    # runs UNDER `make guards`: a nested make inherits MAKELEVEL and announces
+    # `make[1]: Entering directory ...` on STDOUT, which lands in the middle of
+    # the list. It did exactly that on this guard's first CI run while passing
+    # on macOS, where make 3.81 stayed quiet -- so the two make versions had to
+    # be made to agree before the guard could say anything about the Makefile.
+    quiet = {k: v for k, v in os.environ.items() if k not in {"MAKELEVEL", "MAKEFLAGS", "MFLAGS"}}
     printed = subprocess.run(
-        ["make", "-C", str(ROOT / "deploy"), "print-our-images"],
+        ["make", "--no-print-directory", "-C", str(ROOT / "deploy"), "print-our-images"],
         capture_output=True,
         text=True,
         check=True,
+        env=quiet,
     ).stdout.split()
 
     assert set(printed) == declared, (
