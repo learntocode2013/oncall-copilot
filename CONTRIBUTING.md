@@ -200,6 +200,11 @@ for a tool carrying a JSON Schema rather than a function with typed parameters â
 `StructuredTool` with an `args_schema` built from `spec.schema`. Until then the registry and the
 graph do not meet, and `build_graph` still refuses non-empty tools on purpose.
 
+That ask is now load-bearing for the demo, not just for tidiness: two of the three demo
+objectives cannot be shown until the registry reaches the graph. See
+[the demo objectives gap analysis](docs/demo-objectives-gap-analysis.md), which traces each
+objective to the code that blocks it and names an owner per item.
+
 ### `set_flag` takes `{flag, variant}`, and the undo is read, not computed
 
 One payload, everywhere: `{"flag": str, "variant": str}` in the corpus, the validator,
