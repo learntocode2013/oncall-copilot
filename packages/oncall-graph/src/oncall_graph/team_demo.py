@@ -16,7 +16,19 @@ from .stubs import Shop
 from .topologies.c1_single import interrupt_value
 from .topologies.c2_team import Team
 
-ALERT = "payment service failed"
+PAYMENT_ALERT = {
+    "status": "firing",
+    "labels": {"alertname": "PaymentServiceFailed", "service": "payment"},
+    "annotations": {"summary": "payment service failed"},
+    "startsAt": "2026-11-06T00:00:00Z",
+}
+
+CHECKOUT_ALERT = {
+    "status": "firing",
+    "labels": {"alertname": "CheckoutErrorRateHigh", "service": "checkout"},
+    "annotations": {"summary": "checkout error rate above 5% for five minutes"},
+    "startsAt": "2026-11-06T00:00:00Z",
+}
 
 
 def print_trace(trace) -> None:
@@ -29,7 +41,7 @@ def main() -> None:
     # Several specialists share this budget. Diagnosis of one suspect may use
     # all of it, so 10 leaves room for triage, the runbook, and the proposal.
     team = Team(shop=shop, tool_budget=10)
-    paused, measured = team.run(ALERT, incident_id="scripted-team")
+    paused, measured = team.run(CHECKOUT_ALERT, incident_id="scripted-team")
     intr = interrupt_value(paused)
     print("status:", paused.get("status"))
     print("scope:", paused.get("scope"))

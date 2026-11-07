@@ -56,6 +56,140 @@ flowchart TD
 
 Read tools run inside triage, diagnosis, and the runbook. The proposal runs inside remediation. None of them change the shop. The shop write waits for approval.
 
+## Data flow
+
+The chart above is the control path. This one is the data. The incident channel is the store every node reads and writes. The shop and the lesson store are the other two stores. A diagnosis copy receives a brief, not the channel: alert summary, plan text for that service, severity, and its allowance. It does not receive the transcript or another copy's tool results.
+
+```mermaid
+flowchart LR
+  service[Service]
+  engineer[Engineer]
+  team[Team graph]
+  shop[(Shop)]
+  lessons[(Lesson store)]
+
+  service -->|"alert, incident_id"| team
+  team -->|"finished channel"| service
+  team -->|"reads, then the approved write"| shop
+  shop -->|"tool results, error_rate"| team
+  lessons -->|"lessons for the focus service"| team
+  team -->|"action, expected effect, hash"| engineer
+  engineer -->|"approve or reject, payload_hash"| team
+```
+
+Investigation writes the channel, then the monitor either sends the case on or back.
+
+```mermaid
+flowchart TD
+  channel[(Incident channel)]
+  shop[(Shop)]
+
+  commander[commander_plan]
+  triage[triage]
+  diagnosis[diagnosis copy]
+  tally[tally_diagnosis]
+  monitor[monitor]
+  replan[replan]
+
+  channel -->|"alert, reports, hypotheses, revisions, budget, reinvestigate"| commander
+  commander -->|"plan, hypothesis 0.9 or 0.95, route"| channel
+  channel -->|"alert, plan, calls left"| triage
+  triage -->|"promql, log_search, traces, recent_changes"| shop
+  shop -->|"fault, error_rate, local_cause, flag"| triage
+  triage -->|"scope.services, severity, evidence, tool_calls"| channel
+  channel -->|"brief: one service, plan text, severity, allowance"| diagnosis
+  diagnosis -->|"reads for that service"| shop
+  shop -->|"trace local_cause, fault"| diagnosis
+  diagnosis -->|"report, hypothesis 0.4, evidence"| channel
+  channel -->|"report tool_calls minus accounted"| tally
+  tally -->|"tool_calls, diagnosis_calls_accounted"| channel
+  channel -->|"top hypothesis, local_cause, last result, verification"| monitor
+  monitor -->|"route, why"| channel
+  channel -->|"revisions, verification.recovered"| replan
+  replan -->|"stage hypotheses, revisions + 1, clear action, reinvestigate"| channel
+```
+
+A copy with no allowance writes `{service, local_cause: false, tool_calls: 0}` and does not call the model. Copies do not write `tool_calls`. `tally_diagnosis` adds the new calls once.
+
+The act path reads that channel. The shop changes only at execute and rollback.
+
+```mermaid
+flowchart TD
+  channel[(Incident channel)]
+  shop[(Shop)]
+  lessons[(Lesson store)]
+  engineer[Engineer]
+
+  runbook[runbook]
+  remediation[remediation]
+  propose[propose_one_action]
+  approval[approval]
+  execute[execute_action]
+  verify[verify]
+  rollback[rollback]
+  comms[comms]
+
+  channel -->|"top service, alert summary"| runbook
+  lessons -->|"approved lessons for that service"| runbook
+  runbook -->|"search_runbooks"| shop
+  shop -->|"passages"| runbook
+  runbook -->|"kept passages, lessons, dropped"| channel
+  channel -->|"passages, lessons, verification"| remediation
+  remediation -->|"one proposal"| channel
+  channel -->|"last proposal"| propose
+  propose -->|"proposed_action"| channel
+  propose -->|"action, expected effect, hash"| engineer
+  engineer -->|"decision, payload_hash"| approval
+  approval -->|"status, approval_payload_hash"| channel
+  channel -->|"approved action"| execute
+  execute -->|"apply action, args"| shop
+  shop -->|"checkout error_rate"| verify
+  verify -->|"verification"| channel
+  channel -->|"recovered, action, transcript"| comms
+  comms -->|"incident_record, status_draft"| shop
+  channel -->|"action name, args"| rollback
+  rollback -->|"inverse apply"| shop
+  rollback -->|"pending_rollback"| channel
+```
+
+`status_draft` stores a draft. It does not send the note. A failed verification goes to rollback and then `replan`, which clears `verification` and sets `reinvestigate` before the commander runs again.
+
+## Plan stage transitions
+
+`plan.stage` is one of `scope`, `hypotheses`, `test`, `act`, `verify`, `communicate`. The team path writes five of those. `test` is never written. The private `stage` key is a copy of `plan.stage`, except at the runbook: that node sets the private key to `act` while `plan.stage` is still whatever the commander left.
+
+```mermaid
+stateDiagram-v2
+  [*] --> scope: Team.run opens the channel
+  scope --> hypotheses: commander_plan, first visit
+  hypotheses --> hypotheses: commander_plan again, or replan under the cap
+  hypotheses --> act: commander_plan when the local cause is already the top hypothesis
+  hypotheses --> act: propose_one_action has one proposal
+  act --> verify: execute_action and the hash matches
+  verify --> communicate: verify, checkout error rate under 0.05
+  verify --> hypotheses: replan after rollback
+  communicate --> [*]
+```
+
+| When | `plan.stage` becomes | Steps |
+|---|---|---|
+| `Team.run` calls `new_incident`, before any node | `scope` | empty |
+| `commander_plan`, no diagnosis reports yet | `hypotheses` | `promql` of `checkout_error_rate`, and `traces` of the alert service |
+| `commander_plan`, a report's local cause is not the top hypothesis | `hypotheses` | empty. The `0.95` hypothesis is appended and the route is `monitor` |
+| `commander_plan`, a local cause is already the top hypothesis | `act` | empty. The route is `runbook` |
+| `commander_plan`, reinvestigate or a failed verification, calls remain | `hypotheses` | empty. The route is `triage` |
+| `commander_plan`, no local cause and calls remain | `hypotheses` | empty. The route is `triage` |
+| `commander_plan` at the revision cap, or with the budget spent | `hypotheses` | empty. The route is `stop`. The model is not called |
+| `replan` under the revision cap and with calls left | `hypotheses` | empty. `proposed_action` is cleared and `revisions` increases by one |
+| `propose_one_action` with one proposal | `act` | empty |
+| Approval matches the hash | `act` | unchanged |
+| `execute_action` and the hash matches | `verify` | unchanged |
+| `verify` and the checkout error rate is under `0.05` | `communicate` | unchanged |
+| `verify` and the rate is still at or above `0.05` | `verify` | unchanged |
+| `comms` after recovery | `communicate` | empty |
+
+`input_guard_stub`, triage, diagnosis, tally, the monitor, retry, ready, remediation, and rollback leave `plan.stage` as they found it. Retry may put the timed-out step back at the front of `plan.steps`. A replan that has already hit the cap, or has no calls left, escalates without calling `apply_replan`, so the stage stays where the failed verification left it (`verify`). A proposal that never arrives, a rejected approval, and a hash mismatch leave the stage unchanged and end the run.
+
 ## Sequence
 
 The recovered path, including the denial that sends the case back through the commander. Parallel copies run in one superstep. Each copy's payload replaces the parent state for that node, so a copy sees its own brief and not another service's tool results.
@@ -368,7 +502,7 @@ export OPENROUTER_API_KEY=...
 uv run python -m oncall_graph.team_demo
 ```
 
-`Team()` builds each OpenRouter client on the first call that needs it. The key has to be in the environment when the process starts. The commander model is `openai/gpt-4.1-mini`. Every specialist uses `openai/gpt-4o-mini`. The tool budget is 10, because triage, diagnosis, the runbook, and the proposal share it. Diagnosis of one suspect may use the whole configured 10. The checkpointer thread id is `scripted-team`. The alert text is the `ALERT` constant in `team_demo.py`: `payment service failed`.
+`Team()` builds each OpenRouter client on the first call that needs it. The key has to be in the environment when the process starts. The commander model is `openai/gpt-4.1-mini`. Every specialist uses `openai/gpt-4o-mini`. The tool budget is 10, because triage, diagnosis, the runbook, and the proposal share it. Diagnosis of one suspect may use the whole configured 10. The checkpointer thread id is `scripted-team`. The run passes `CHECKOUT_ALERT`: a firing `CheckoutErrorRateHigh` for `checkout`, summary `checkout error rate above 5% for five minutes`. `PAYMENT_ALERT` is the same shape for payment: `PaymentServiceFailed`, service `payment`, summary `payment service failed`. Pass that object to `Team.run` to start from payment instead.
 
 Every shop call prints `scripted shop` and `(no network)`. The fixture starts with `paymentFailure` enabled. `promql` then returns a checkout error rate of `0.08` and names that fault. `traces("payment")` returns `local_cause: true`. `traces("checkout")` returns `local_cause: false`. `recent_changes` reports the flag enabled. Triage and diagnosis are offered that tool. The solo agent's `READ_TOOLS` leave it commented out. Turning the flag off drops the scripted rate to `0.01`. Recovery is a rate under `0.05`.
 
