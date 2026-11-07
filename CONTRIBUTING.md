@@ -264,7 +264,7 @@ incident is judged by.
 ```python
 promql(query)  # last value per series, 15 series max
 log_search(service, query="")  # 20 lines max, 240 chars each
-traces(service)  # trace ids and a count; spans stay on Jaeger
+traces(service)  # trace ids, and which (service, operation) pairs errored
 ```
 
 The client it wraps **moved here from `oncall_graph.astronomy_shop`**, and the move was forced:
@@ -307,10 +307,85 @@ corrupt the session's framing, and the symptom would surface nowhere near the ca
 uses a module logger. The trace lines the terminal demo shows now come from `LiveShop`, in P2's
 package, where stdout is harmless.
 
+### `traces` reports which spans errored, and nothing they said
+
+```python
+{
+    "service": "checkout",  # the service ASKED about
+    "count": 4,
+    "trace_ids": [...],
+    "spans_read": 27,  # how many spans were actually examined
+    "error_spans": 12,
+    "error_traces": 4,
+    "error_groups": 5,
+    "error_groups_omitted": 0,
+    "errors": [
+        {
+            "service": "payment",  # the service the FAILING SPAN belongs to
+            "operation": "charge",
+            "span_count": 1,
+            "trace_ids": ["f05373f5..."],
+        }
+    ],
+}
+```
+
+Demo objective 1 is "show the agent finding payment errors **in the traces**", and until PR #27
+this tool returned ids and a count, so the objective's own wording was unreachable. Three things
+about the shape are deliberate and are the parts to not undo:
+
+**Span text does not travel.** No attributes, no `status.message`, no events, no stack traces. The
+real message on the demo's failing span reads `Payment request failed. Invalid token.
+demo.user_context.loyalty_level=gold` — service-authored text, from a service under a fault we are
+injecting, and objective 2 is about exactly that class of text arriving through telemetry.
+`log_search` handles text and tells the model it is data; `traces` handles structure, where a name
+and a count cannot carry a sentence. `test_no_span_text_reaches_the_result` asserts it against a
+recorded real payload that still contains the messages.
+
+**The failing span keeps its own service.** Jaeger returns traces the queried service took part
+in, so asking about `checkout` is *how* you find that `payment` errored inside its traces. Filing
+that row under `checkout` would be this server deciding whose fault it is, and the rule above
+still holds: a span that failed because its callee failed looks exactly like one that failed on
+its own.
+
+**The loudest group is not the cause, and the totals are not the row count.** Measured live with
+`paymentFailure` armed: 28 errored spans in 10 groups, of which 20 were routine `flagd`/`cart`
+flag evaluations and the two `payment` rows had one span each and sorted last. `errors[0]` is the
+most frequent failing operation; anything that reads the top row will diagnose flagd. The row list
+is capped at 24 with `error_groups_omitted` saying what was dropped, while `error_spans` and
+`error_groups` count everything found — the first version summed the returned rows instead, which
+under-reported errors in proportion to how many it printed.
+
+**Reading nothing is not reading zero.** If Jaeger returns traces whose spans this client cannot
+walk, `traces` **raises** rather than reporting `errors: []`, for the same reason an unreachable
+Prometheus raises: "no errors found" must never be able to mean "I did not look". `spans_read`
+exists so a caller can tell an examined-and-healthy window from an unexamined one.
+
+To see it against the running stack, arm the fault, give the load generator a minute, and ask the
+server on 8101:
+
+```python
+from oncall_tools.registry import load_tools
+
+with load_tools(servers=["telemetry"], transport="http", host="localhost") as registry:
+    print(registry["traces"].invoke({"service": "checkout"})["errors"])
+```
+
+Measured that way on 2026-11-07: 1271 spans read, 106 errored, 10 groups, and `payment | charge`
+among them from a question about `checkout`. **Disarm before running `make guards`** -- arming
+rewrites `deploy/flagd/demo.flagd.json`, and a guard refuses a fault committed as enabled.
+
+The recorded payload the tests run against is
+`packages/oncall-tools/tests/data/jaeger_v3_payment_failure.json` — a real `jaeger:2.19.0` answer,
+trimmed but unedited in shape. Hand-writing it would have tested my idea of Jaeger's output, and
+`status.code` arriving as the integer `2` rather than the string `"STATUS_CODE_ERROR"` is the kind
+of detail that idea gets wrong.
+
 ### What this server does not do
 
 It does not interpret. No tool here says whether an error rate is high, which service is at fault,
-or whether a cause is local. That matters more than it sounds: the scripted shop answers `fault`,
+or whether a cause is local — `traces` counts errored spans and groups them, which is a census,
+not a verdict. That matters more than it sounds: the scripted shop answers `fault`,
 `local_cause` and `error_rate`, and `handoffs.py` reads **exactly those three keys** — so a live
 run extracts no evidence from real telemetry and raises nothing while doing it. Deciding where
 interpretation belongs is P2's call, not something to settle by quietly adding a verdict to a read.
