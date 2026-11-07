@@ -2,6 +2,12 @@
 # Every service added here must add its health check to `make verify` in the
 # same commit so `make up --wait` remains trustworthy.
 #
+# Every service added here must also declare `restart: unless-stopped`. The
+# demo's services all do, so when the Docker daemon restarts, the whole stack
+# comes back EXCEPT the services that omit it. Measured: a daemon restart left
+# 31 containers up and healthy, `make verify`'s prometheus and frontend lines
+# green, and only `incident API` failing -- a stack that looks up and is not.
+#
 # Relative paths here must be ${ONCALL_ROOT}-rooted: Compose resolves
 # relative paths in EVERY -f file against the FIRST file's directory, which
 # is the demo repo, not ours. --project-directory cannot fix that without
@@ -26,6 +32,7 @@ services:
     ports:
       - "8000:8000"
     init: true
+    restart: unless-stopped
     healthcheck:
       test:
         - CMD
@@ -62,6 +69,7 @@ services:
     ports:
       - "8020:8020"
     init: true
+    restart: unless-stopped
     healthcheck:
       test:
         - CMD
