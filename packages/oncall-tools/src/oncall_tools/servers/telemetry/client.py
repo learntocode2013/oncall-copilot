@@ -78,6 +78,31 @@ _MAX_LINES = 20
 _MAX_LINE = 240
 _MAX_TRACES = 20
 
+#: Bounds on what `traces` returns about errored spans.
+#:
+#: 24 GROUPS, AND THE FIRST NUMBER HERE WAS 8. Measured against the live stack
+#: with `paymentFailure` armed: Jaeger returned 28 errored spans in 10 groups,
+#: and the two that mattered -- `payment | charge` and `payment |
+#: oteldemo.PaymentService/Charge`, one span each -- were ranked LAST, because
+#: the window also held 20 spans of routine `flagd`/`cart` flag-evaluation
+#: noise. A bound of 8 cut exactly the two rows the whole investigation is
+#: about, and the result still read as a complete list of errors. Hence 24, and
+#: hence `error_groups` and `error_groups_omitted` in the result: the totals are
+#: counted over every group, so a truncated list says that it is one.
+_MAX_ERROR_GROUPS = 24
+_MAX_TRACE_CITATIONS = 3
+_MAX_NAME = 120
+
+#: Control characters are stripped from a span or service name so one field
+#: cannot impersonate the end of a row. See `_name`.
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+#: OTLP `Status.code` 2 is ERROR (0 UNSET, 1 OK). A JSON encoder may emit the
+#: enum as a number, a numeric string or its name, so all four are accepted --
+#: and anything else is NOT an error, which keeps an unrecognised encoding from
+#: reading as a healthy span.
+_STATUS_ERROR = frozenset({2, "2", "ERROR", "STATUS_CODE_ERROR"})
+
 _TIMEOUT = 30
 
 
@@ -271,7 +296,30 @@ class AstronomyShop:
         }
 
     def traces(self, service: str, search_depth: int = _MAX_TRACES) -> dict:
-        """Recent trace ids for one service. Span bodies stay on Jaeger."""
+        """Recent traces for one service, with the spans that carried an error.
+
+        WHAT THIS RETURNS AND WHAT IT DELIBERATELY DOES NOT.
+
+        Four facts per failing span group: the service the span belongs to, the
+        span's operation name, how many error spans matched, and up to three
+        trace ids to cite. Nothing else crosses from a span into this result --
+        no attributes, no `status.message`, no events, no log bodies. A trace
+        from a service under an injected fault is a long stretch of text written
+        by the thing being diagnosed, and `log_search`'s description already
+        says why that text is data and not instructions. Here it simply does not
+        travel: a name and a count cannot carry a sentence.
+
+        `errors` reports the span's OWN service, which is usually not the
+        `service` asked for. Jaeger returns traces that the queried service took
+        part in, so asking about `checkout` is how you find out that `payment`
+        errored inside its traces. That is a read, not a verdict: this server
+        does not decide which of them is the cause.
+
+        `spans_read` exists so an empty `errors` can be told apart from a
+        payload this client could not walk. Jaeger returning traces whose spans
+        cannot be read is a FAILED read, not a quiet system, so it raises --
+        the same rule as an unreachable backend.
+        """
         if not isinstance(service, str) or not _SERVICE.match(service):
             raise ValueError(
                 f"service {service!r} is not a service name: "
@@ -291,11 +339,32 @@ class AstronomyShop:
             raise TelemetryUnavailable(f"jaeger rejected the search: {payload['error']}")
         found: list[str] = []
         _collect_trace_ids(payload, found)
-        log.info("telemetry traces ok service=%r count=%d", service, len(found))
+        read = _read_error_spans(payload)
+        if found and not read["spans_read"]:
+            raise TelemetryUnavailable(
+                f"jaeger returned {len(found)} trace(s) for {service!r} and no span this "
+                "client could read: no `resourceSpans` block in the payload. Reporting "
+                "zero errors here would mean 'I did not look', and that reads to an agent "
+                "as 'nothing is wrong'. Check the Jaeger version's /api/v3/traces shape."
+            )
+        log.info(
+            "telemetry traces ok service=%r count=%d spans=%d error_spans=%d groups=%d",
+            service,
+            len(found),
+            read["spans_read"],
+            read["error_spans"],
+            read["error_groups"],
+        )
         return {
             "service": service,
             "count": len(found),
             "trace_ids": found,
+            "spans_read": read["spans_read"],
+            "error_spans": read["error_spans"],
+            "error_traces": read["error_traces"],
+            "error_groups": read["error_groups"],
+            "error_groups_omitted": read["error_groups"] - len(read["errors"]),
+            "errors": read["errors"],
             "window_minutes": self.minutes,
         }
 
@@ -316,3 +385,110 @@ def _collect_trace_ids(payload, found: list[str]) -> None:
             _collect_trace_ids(item, found)
             if len(found) >= _MAX_TRACES:
                 return
+
+
+def _resource_spans(payload, blocks: list[dict]) -> None:
+    """Collect every `resourceSpans` entry, wherever the payload nests it.
+
+    Jaeger 2's `/api/v3/traces` answers with OTLP JSON under a `result` key, but
+    the nesting has moved between versions and a grpc-gateway stream can wrap
+    it again. Searching for the block rather than indexing a fixed path means a
+    moved wrapper costs nothing; a RENAMED block is caught by `spans_read == 0`.
+    """
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            if key in {"resourceSpans", "resource_spans"} and isinstance(value, list):
+                blocks.extend(item for item in value if isinstance(item, dict))
+            else:
+                _resource_spans(value, blocks)
+    elif isinstance(payload, list):
+        for item in payload:
+            _resource_spans(item, blocks)
+
+
+def _attribute(attributes, key: str) -> str:
+    """One string-valued OTLP attribute out of an attribute list."""
+    for item in attributes or []:
+        if not isinstance(item, dict) or item.get("key") != key:
+            continue
+        value = item.get("value")
+        if isinstance(value, dict):
+            for form in ("stringValue", "string_value"):
+                if isinstance(value.get(form), str):
+                    return value[form]
+        return ""
+    return ""
+
+
+def _name(value) -> str:
+    """A service or operation name, bounded and on one line.
+
+    Span names come from instrumentation rather than from a user, so this is not
+    sanitising untrusted prose -- the untrusted prose is the part this tool does
+    not return at all. It is making sure one field cannot pretend to be two: a
+    newline or a control character inside a name would let it impersonate the
+    end of the row in anything that renders this as text.
+    """
+    return _CONTROL.sub(" ", str(value or "")).strip()[:_MAX_NAME]
+
+
+def _read_error_spans(payload) -> dict:
+    """Count the spans in an OTLP payload and group the errored ones.
+
+    Returns `spans_read`, `error_spans`, `error_traces`, `error_groups` and
+    `errors`. THE FOUR COUNTS ARE OVER EVERYTHING FOUND; only `errors` is
+    truncated. Summing the rows that survived truncation would under-report the
+    errors in the window, and a tool that under-reports errors is the failure
+    this project keeps finding: it answers, it looks complete, and it is wrong.
+
+    `errors` is grouped by (service, operation) rather than listed per span,
+    because a load generator under an injected fault produces the same failing
+    span hundreds of times a minute and twenty copies of one row is not twenty
+    pieces of evidence. The group is a count, not a ranking of blame: the
+    loudest group in a measured run was routine flag-evaluation noise and the
+    quietest was the injected fault.
+    """
+    blocks: list[dict] = []
+    _resource_spans(payload, blocks)
+    spans_read = 0
+    error_spans = 0
+    error_traces: set[str] = set()
+    groups: dict[tuple[str, str], dict] = {}
+    for block in blocks:
+        resource = block.get("resource") if isinstance(block.get("resource"), dict) else {}
+        service = _name(_attribute(resource.get("attributes"), "service.name")) or "(unnamed)"
+        scopes = block.get("scopeSpans") or block.get("scope_spans") or []
+        for scope in scopes if isinstance(scopes, list) else []:
+            if not isinstance(scope, dict):
+                continue
+            spans = scope.get("spans") or []
+            for span in spans if isinstance(spans, list) else []:
+                if not isinstance(span, dict):
+                    continue
+                spans_read += 1
+                status = span.get("status") if isinstance(span.get("status"), dict) else {}
+                if status.get("code") not in _STATUS_ERROR:
+                    continue
+                error_spans += 1
+                trace_id = _name(span.get("traceId") or span.get("trace_id"))
+                if trace_id:
+                    error_traces.add(trace_id)
+                key = (service, _name(span.get("name")))
+                row = groups.setdefault(
+                    key,
+                    {"service": key[0], "operation": key[1], "span_count": 0, "trace_ids": []},
+                )
+                row["span_count"] += 1
+                if trace_id and trace_id not in row["trace_ids"]:
+                    row["trace_ids"] = [*row["trace_ids"], trace_id][:_MAX_TRACE_CITATIONS]
+    ranked = sorted(
+        groups.values(),
+        key=lambda row: (-row["span_count"], row["service"], row["operation"]),
+    )
+    return {
+        "spans_read": spans_read,
+        "error_spans": error_spans,
+        "error_traces": len(error_traces),
+        "error_groups": len(groups),
+        "errors": ranked[:_MAX_ERROR_GROUPS],
+    }

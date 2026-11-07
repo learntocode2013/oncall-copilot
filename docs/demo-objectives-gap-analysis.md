@@ -127,6 +127,27 @@ tension with a stated demo objective, so I am reopening it rather than defending
 mine to fix and it needs nothing from P2 or P4.** My intended shape: return per-trace error
 status and the failing span's service and name, not whole span bodies.
 
+> **DONE — PR #27.** `traces` now returns `errors`: one row per failing `(service, operation)`
+> pair with a span count and up to three trace ids, plus `error_spans`, `error_traces`,
+> `error_groups` and `spans_read`. Verified live against `jaeger:2.19.0` with `paymentFailure`
+> armed: a query for **checkout** returns `payment | charge` and
+> `payment | oteldemo.PaymentService/Charge` as errored, alongside checkout's own client span for
+> the call into payment. Span attributes, `status.message`, events and stack traces are still not
+> returned, so the attacker-controlled-text objection is answered rather than traded away.
+>
+> **Two things P2 should know before building interpretation on this.**
+>
+> 1. **The loudest error group is noise.** In that measured run Jaeger reported 28 errored spans
+>    in 10 groups; 20 of them were routine `flagd`/`cart` flag evaluations, and the two `payment`
+>    rows that are the entire point had **one span each** and sorted last. `errors[0]` is the most
+>    frequent failing operation, not the cause. Anything that reads the top row will diagnose
+>    flagd.
+> 2. **The counts are not the row count.** `error_spans` and `error_groups` are totals over
+>    everything found; `errors` is truncated at 24 rows and `error_groups_omitted` says by how
+>    much. My first version summed the returned rows, which under-reported the errors in the
+>    window in proportion to how many it had decided to print — caught by the live run, not by a
+>    test, and now pinned by one.
+
 ---
 
 ## Objective 2: the log-borne instruction, blocked

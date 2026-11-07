@@ -626,6 +626,63 @@ def test_every_service_we_define_restarts_with_the_docker_daemon() -> None:
     )
 
 
+def test_make_up_builds_every_image_we_define() -> None:
+    """`make -C deploy up` must rebuild every image this repo defines.
+
+    It used to build two of them. `up` read `$(COMPOSE) build oncall-service
+    oncall-lab`, written before the three `mcp-*` servers existed and never
+    extended, so those containers started from whatever image was last built by
+    hand. Measured on 2026-11-07: after `make -C deploy up` on a clean checkout,
+    `traces` answered over port 8101 with the PREVIOUS release's shape while the
+    source on disk had the new one, and `verify` printed `mcp-telemetry 400` --
+    which is that file's own signal for a healthy streamable-http server. A
+    stale server that answers is worse than one that is down.
+
+    The Makefile now derives the list with awk from the same file this reads
+    with a YAML parser. Two readers of one file is the point: this fails if a
+    new service is added and awk does not see it, if the awk is broken by a
+    reformat, and if someone shortens the list by hand.
+
+    A plain `docker compose build` is not the alternative -- upstream's compose
+    declares a `build:` for all 30 demo services, so it would build the whole
+    Astronomy Shop from source. Only the services OUR overlay defines are ours
+    to build, and `build:` is what tells them from the six demo services this
+    file merely patches.
+    """
+    import os
+    import subprocess
+
+    import yaml
+
+    compose = yaml.safe_load((ROOT / "deploy" / "compose.oncall.yaml").read_text(encoding="utf-8"))
+    declared = {name for name, body in compose["services"].items() if "build" in body}
+    assert declared, (
+        "no service in deploy/compose.oncall.yaml declares build: this guard has gone vacuous"
+    )
+
+    # `--no-print-directory`, and MAKELEVEL out of the environment, because this
+    # runs UNDER `make guards`: a nested make inherits MAKELEVEL and announces
+    # `make[1]: Entering directory ...` on STDOUT, which lands in the middle of
+    # the list. It did exactly that on this guard's first CI run while passing
+    # on macOS, where make 3.81 stayed quiet -- so the two make versions had to
+    # be made to agree before the guard could say anything about the Makefile.
+    quiet = {k: v for k, v in os.environ.items() if k not in {"MAKELEVEL", "MAKEFLAGS", "MFLAGS"}}
+    printed = subprocess.run(
+        ["make", "--no-print-directory", "-C", str(ROOT / "deploy"), "print-our-images"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=quiet,
+    ).stdout.split()
+
+    assert set(printed) == declared, (
+        "deploy/Makefile and deploy/compose.oncall.yaml disagree about which images are ours.\n"
+        f"  the Makefile will build: {sorted(printed)}\n"
+        f"  the overlay defines:     {sorted(declared)}\n"
+        "A service the Makefile does not build runs from a stale image and says nothing."
+    )
+
+
 def test_the_postmortem_corpus_validates() -> None:
     """The seeds are data a reviewer reads, so a typo must fail here.
 
