@@ -130,6 +130,7 @@ verify:
 # when nothing is listening, so this fails on a dead service and passes on a
 # live one -- the opposite of what -f would do. Confirmed against the running
 # container.
+	@printf 'mcp-telemetry '; curl -sS -o /dev/null -w '%{http_code}\n' localhost:8101/mcp
 	@printf 'mcp-runbooks  '; curl -sS -o /dev/null -w '%{http_code}\n' localhost:8102/mcp
 	@printf 'mcp-ops-actions '; curl -sS -o /dev/null -w '%{http_code}\n' localhost:8104/mcp
 

@@ -1290,6 +1290,7 @@ dependencies = [
     { name = "langchain-openai" },
     { name = "langgraph" },
     { name = "oncall-contracts" },
+    { name = "oncall-tools" },
 ]
 
 [package.metadata]
@@ -1298,6 +1299,7 @@ requires-dist = [
     { name = "langchain-openai", specifier = ">=0.3" },
     { name = "langgraph", specifier = ">=1.2" },
     { name = "oncall-contracts", editable = "packages/oncall-contracts" },
+    { name = "oncall-tools", editable = "packages/oncall-tools" },
 ]
 
 [[package]]

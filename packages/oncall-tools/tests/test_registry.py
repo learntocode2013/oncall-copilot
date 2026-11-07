@@ -164,17 +164,16 @@ def test_a_narrowed_view_shares_the_sessions_and_closes_nothing(registry):
 
 
 def test_only_servers_that_exist_are_listed():
-    """telemetry and tickets are still unwritten. Listing them would make
-    load_tools() fail for everyone until they landed, or return fewer tools than
-    it claimed."""
-    assert sorted(SERVERS) == ["ops_actions", "runbooks"]
+    """`tickets` is still unwritten. Listing it would make load_tools() fail for
+    everyone until it landed, or return fewer tools than it claimed."""
+    assert sorted(SERVERS) == ["ops_actions", "runbooks", "telemetry"]
 
 
 def test_an_unknown_server_is_loud():
     """Not skipped: a registry that quietly omits a server the caller asked for
     produces an agent that cannot explain why it never searched runbooks."""
-    with pytest.raises(UnknownServerError, match="telemetry"):
-        load_tools(servers=["telemetry"])
+    with pytest.raises(UnknownServerError, match="tickets"):
+        load_tools(servers=["tickets"])
 
 
 def test_the_server_table_knows_the_port_and_module():
@@ -215,8 +214,22 @@ def test_an_unrecognised_transport_raises_rather_than_falling_back(monkeypatch):
 
 
 def test_the_default_registry_spans_every_server(full_registry):
-    """What `load_tools()` with no arguments gives the graph."""
-    assert {tool.server for tool in full_registry} == {"runbooks", "ops_actions"}
+    """What `load_tools()` with no arguments gives the graph.
+
+    Asserted as a set of SERVERS, not a count of tools: the point is that no
+    server drops out of the default registry silently, which is how an agent
+    ends up unable to explain why it never queried Prometheus.
+    """
+    assert {tool.server for tool in full_registry} == {"runbooks", "ops_actions", "telemetry"}
+    assert sorted(full_registry.names) == [
+        "get_runbook",
+        "log_search",
+        "promql",
+        "rollback_flag",
+        "search_runbooks",
+        "set_flag",
+        "traces",
+    ]
 
 
 def test_the_write_server_contributes_write_tools(full_registry):

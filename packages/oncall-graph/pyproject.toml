@@ -5,6 +5,10 @@ description = "P2 — incident commander, specialists, planning, improvement loo
 requires-python = ">=3.12"
 dependencies = [
     "oncall-contracts",
+    # LiveShop reads the telemetry client back from oncall_tools, where
+    # mcp-telemetry serves it. The guards permit graph -> tools and forbid
+    # tools -> graph, which is why the client lives there and not here.
+    "oncall-tools",
     "langgraph>=1.2",
     "langchain-core>=0.3",
     "langchain-openai>=0.3",

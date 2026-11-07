@@ -1,0 +1,57 @@
+# mcp-telemetry: read-only PromQL, logs and traces. Port 8101.
+#
+# A THIRD DOCKERFILE, for the same reason there is a second one. This server
+# imports `mcp` and the standard library and nothing else -- no retriever, no
+# embedder, no corpus. Serving it from `Dockerfile` would put a 1.4 GB
+# sentence-transformers model behind three HTTP clients.
+#
+# NO `data/` AND NO `deploy/flagd/` COPY, unlike the other two. This server
+# ingests no runbooks and reads no flag document, so baking either in would be
+# handing a telemetry reader the corpus that names every fault's root cause.
+#
+# Build context is the REPO ROOT: uv needs the workspace root pyproject.toml and
+# uv.lock to resolve a member.
+FROM python:3.12-slim
+
+# Pinned to CI's UV_VERSION, as the other two images are.
+COPY --from=ghcr.io/astral-sh/uv:0.11.17 /uv /bin/uv
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock ./
+COPY packages/oncall-contracts/pyproject.toml packages/oncall-contracts/
+COPY packages/oncall-knowledge/pyproject.toml packages/oncall-knowledge/
+COPY packages/oncall-tools/pyproject.toml packages/oncall-tools/
+
+COPY packages/oncall-contracts/ packages/oncall-contracts/
+COPY packages/oncall-knowledge/ packages/oncall-knowledge/
+COPY packages/oncall-tools/ packages/oncall-tools/
+
+# oncall-knowledge is still resolved: it is a declared dependency of
+# oncall-tools, because the runbooks server in this same package needs it. Its
+# SOURCE is installed; nothing in the telemetry entry point imports it, and
+# without `--extra semantic` no torch is resolved either.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --package oncall-tools
+
+# Put the venv on PATH and stop using `uv run`: it re-targets the root project,
+# which is not fully present here, and would fail on every container start.
+ENV PATH="/app/.venv/bin:$PATH" \
+    VIRTUAL_ENV=/app/.venv
+
+# NO default endpoints baked in. The server resolves PROMETHEUS_URL, JAEGER_URL
+# and OPENSEARCH_URL while it is being built and REFUSES TO START if any is
+# missing, so a container with a bad environment fails its health check instead
+# of answering every query against an address nobody owns. Compose sets all
+# three by service name.
+EXPOSE 8101
+
+# 0.0.0.0, not the SDK's loopback default: a server bound to 127.0.0.1 inside a
+# container is unreachable from the Compose network.
+CMD ["python", "-m", "oncall_tools.servers.telemetry", \
+     "--transport", "http", "--port", "8101", "--host", "0.0.0.0"]

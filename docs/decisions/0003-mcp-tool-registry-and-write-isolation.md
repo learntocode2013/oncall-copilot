@@ -13,6 +13,8 @@ though they existed; none did.
 
 Three facts shaped what got built:
 
+> **Partly resolved since.** `ops_actions` landed in #19 ([ADR-0004](0004-the-only-write-server.md)) and `telemetry` in this change ([ADR-0006](0006-mcp-telemetry-and-the-moved-client.md)). `tickets` (8103) remains unwritten.
+
 1. **One of four servers exists.** The October plan names `telemetry` (8101), `runbooks` (8102),
    `tickets` (8103) and `ops_actions` (8104 — the only write server). Only `runbooks_kb` is
    written.
