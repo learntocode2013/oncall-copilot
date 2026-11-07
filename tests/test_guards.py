@@ -570,3 +570,50 @@ def test_every_mcp_server_has_a_compose_service_and_a_verify_line() -> None:
             missing.append(f"`make -C deploy verify` never asks {service} on port {spec.port}")
 
     assert not missing, "a server that nothing checks:\n  " + "\n  ".join(missing)
+
+
+def test_every_service_we_define_restarts_with_the_docker_daemon() -> None:
+    """`deploy/compose.oncall.yaml` states this rule in a comment:
+
+        Every service added here must also declare `restart: unless-stopped`.
+
+    Nothing enforced it, and on 2026-11-07 it cost an outage that read as a
+    working stack. The Docker daemon went down at 03:12:36Z and came back at
+    04:00:35Z. Every container carrying a restart policy came back with it;
+    `oncall-service` and `oncall-lab` declared none, so they stayed dead while
+    31 containers ran healthy. `make -C deploy verify` printed Prometheus ready
+    and the shop frontend 200 before failing on `incident API`, `docker ps -a`
+    still showed `0.0.0.0:8000->8000` for the stopped container, and the logs
+    ended on `GET /healthz 200 OK`. A correct health check, a healthy service,
+    and no crash to find.
+
+    Only the services this overlay DEFINES are checked. The file also patches
+    six of the demo's own services (grafana, flagd, checkout and friends) to
+    add environment and volumes; those inherit the demo's policy, and the two
+    kinds are told apart by `build:`, which only ours have.
+
+    The value is checked, not just the key. `restart: no` is what the two
+    broken services effectively had, and it would satisfy a presence check.
+    `always` is rejected for the opposite reason: it restarts a container the
+    operator deliberately stopped, which would quietly undo `make -C deploy
+    stop`.
+    """
+    import yaml
+
+    compose = yaml.safe_load((ROOT / "deploy" / "compose.oncall.yaml").read_text(encoding="utf-8"))
+    ours = {name: body for name, body in compose["services"].items() if "build" in body}
+
+    assert ours, (
+        "no service in deploy/compose.oncall.yaml declares build: this guard has gone vacuous"
+    )
+
+    offenders = [
+        f"{name} declares restart: {body.get('restart', '(nothing)')}"
+        for name, body in sorted(ours.items())
+        if body.get("restart") != "unless-stopped"
+    ]
+
+    assert not offenders, (
+        "a service that will not come back when the Docker daemon does:\n  "
+        + "\n  ".join(offenders)
+    )
