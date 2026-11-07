@@ -345,6 +345,62 @@ during every incident it exists to resolve.
 **Its own Dockerfile**, `Dockerfile.ops-actions`, with no `semantic` extra: 344 MB against
 `mcp-runbooks`' 1.66 GB. Build-only in `make images` because its runtime needs that mount.
 
+## `oncall-memory`: the playbook, and what code refuses to apply
+
+P1's. `docs/memory-policy.md` governs it; this is what the code does.
+
+The store is read-only and loaded from the committed postmortems:
+
+```python
+from oncall_memory import LessonStore
+
+store = LessonStore.from_postmortems()  # data/postmortems/*.md
+store.playbook_hash  # 64 hex chars, over APPROVED lessons only
+store.search(service="payment", symptom="checkout error rate")
+```
+
+Four rules, each of which exists because the permissive version fails silently.
+
+**`search` serves `approved` and raises on anything else.** Not "filters to" — raises. It is the
+path a brief is built from, so there must be no argument that routes an unreviewed, refused or
+superseded lesson into one, including an explicit one. `rejected()` is the human path and is a
+different method for that reason.
+
+**`search` never narrows on preconditions**, although `load_lessons` hands it the service and
+the symptom. Narrowing there is a tempting optimisation that deletes a demo objective: scene 3
+shows a lesson *rejected because its preconditions do not match*, and what it renders is the
+`dropped` list `partition_lessons` returns. A store that filtered first would hand over nothing
+to reject, and the scene would quietly become an empty list.
+
+**An approved lesson must state at least one precondition.** `precondition_matches` returns True
+for `{}`, so a lesson with none applies to every incident. The policy's worked example is the
+ADR-0001 lesson applied to ADR-0002, where it sends you entirely the wrong way.
+
+**A precondition key the matcher never reads is refused at load time.**
+`precondition_matches` evaluates `service` and `symptom` and nothing else, so
+`change_precedes_alert: true` would be a guard that looks checked and is not. The loader rejects
+the document rather than letting the corpus carry it.
+
+### This asks three things of P2, none of them made
+
+1. **Inject the store.** `oncall-service` builds `Solo(shop=LiveShop())` directly
+   (`main.py:272`) and passes no store, so `load_lessons` returns two empty lists and scene 3
+   shows nothing. The service may import `oncall-memory` (the import rules were extended for
+   exactly this); the graph still may not, and does not need to.
+2. **Make `partition_lessons` fail closed.** It drops `rejected` and `pending` and defaults a
+   missing status to `approved`. The policy's status for an unreviewed candidate is `inferred`,
+   which is on neither list, so such a lesson is kept and shown as reviewed guidance. Keeping
+   only what is explicitly `approved` fixes it in one line.
+3. **Decide where precondition evaluation goes next.** Only `service` and `symptom` are
+   evaluated today, which is why the policy's own worked example had to be seeded as a
+   **rejected** lesson: the precondition that would make it safe cannot be written in a form
+   code checks. Widening `precondition_matches` is the prerequisite for approving lessons of
+   that shape, and P1 will not widen the authoring rule first.
+
+Scene 3's mechanism is proved end to end in `tests/test_demo_scene_3.py`, which lives in the
+root test tree because it imports both packages and `test_dependency_direction` scans package
+tests too.
+
 ## The P2 / P3 seam
 
 `interrupt()` is a LangGraph primitive, so the **call site** is in `oncall_graph/nodes/remediate.py`

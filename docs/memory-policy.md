@@ -9,15 +9,28 @@ learned during one. This page governs the second.
 
 **Memory must never silently promote a hypothesis into a fact.**
 
-Every record carries a provenance status, using the same vocabulary as the corpus
-(`data/runbooks/*.md` front matter):
+Every record carries a provenance status. **This is not the corpus's vocabulary** — an earlier
+version of this page said it was, and that was wrong. A runbook's `status` is
+`verified | structural | hypothesis` (`oncall_knowledge.schema.EVIDENCE_STATUSES`) and answers
+*how well is this known?* A memory record's status answers a different question: *has a person
+accepted it?* The two sets are disjoint on purpose, which is also why a postmortem is not
+validated as a runbook (`oncall_memory.postmortems`).
 
 | `status` | Means | The agent may |
 |---|---|---|
 | `observed` | read directly from telemetry during this incident | cite as evidence |
-| `inferred` | the agent's conclusion from observations | cite **as a conclusion**, naming the observations |
+| `inferred` | the agent's conclusion, or a candidate lesson no person has reviewed | cite **as a conclusion**, naming the observations; **never apply as a lesson** |
 | `approved` | a lesson a human reviewed and accepted | apply, if its preconditions match |
 | `rejected` | reviewed and refused, kept with the reason | never apply; useful as a counterexample |
+| `superseded` | replaced by a later record, kept for the timeline | never apply |
+
+**One mismatch is open, and it is fail-open.** `oncall_graph.handoffs.partition_lessons` drops
+the statuses `rejected` and `pending`, and defaults a lesson with no status to `approved`. The
+status this policy gives an unreviewed candidate is `inferred`, which is on neither list — so an
+`inferred` lesson reaching that function is kept and shown as reviewed guidance. `LessonStore`
+is what prevents it today: `search` serves `approved` only and raises on any other status, so
+nothing else leaves the store. The durable fix is for the graph to keep only what is explicitly
+`approved`, which is P2's file.
 
 An output guardrail enforces this: a claim sourced from a record that is not `observed` must not
 be presented as telemetry. This is the same standard the corpus uses — 16 of 18 runbooks are
@@ -28,7 +41,14 @@ be presented as telemetry. This is the same standard the corpus uses — 16 of 1
 | | Where | Lifetime |
 |---|---|---|
 | **Short-term** — the live investigation | `IncidentState` in the LangGraph checkpointer | one incident |
-| **Long-term** — episodes and lessons | the LangGraph store | across incidents |
+| **Long-term** — episodes and lessons | `oncall-memory`, seeded from `data/postmortems/` | across incidents |
+
+The long-term half is a workspace member rather than a store object passed around, because the
+import rules leave no other route: `oncall_graph` may not import `oncall_knowledge`, and neither
+may `oncall_service`. The graph receives a store **object** and calls `search(service, symptom,
+status)` on it, so it needs no import at all; the service constructs it. A lesson's committed
+source is a postmortem, which is what makes `derived_from` resolve and `forget(incident_id)`
+able to cascade.
 
 `IncidentState` already carries `alert`, `scope`, `severity`, `hypotheses`, `evidence`, `plan`,
 `proposed_action`, `verification` and `transcript`, with `operator.add` reducers on the

@@ -1,0 +1,19 @@
+[project]
+name = "oncall-memory"
+version = "0.1.0"
+description = "P1 — the lesson store: postmortems, the playbook, and what code refuses to apply."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "oncall-contracts",
+    "oncall-knowledge",
+    "pyyaml>=6.0.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+oncall-contracts = { workspace = true }
+oncall-knowledge = { workspace = true }
