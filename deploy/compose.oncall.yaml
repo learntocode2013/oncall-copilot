@@ -2,6 +2,12 @@
 # Every service added here must add its health check to `make verify` in the
 # same commit so `make up --wait` remains trustworthy.
 #
+# Every service added here must also declare `restart: unless-stopped`. The
+# demo's services all do, so when the Docker daemon restarts, the whole stack
+# comes back EXCEPT the services that omit it. Measured: a daemon restart left
+# 31 containers up and healthy, `make verify`'s prometheus and frontend lines
+# green, and only `incident API` failing -- a stack that looks up and is not.
+#
 # Relative paths here must be ${ONCALL_ROOT}-rooted: Compose resolves
 # relative paths in EVERY -f file against the FIRST file's directory, which
 # is the demo repo, not ours. --project-directory cannot fix that without
@@ -26,6 +32,7 @@ services:
     ports:
       - "8000:8000"
     init: true
+    restart: unless-stopped
     healthcheck:
       test:
         - CMD
@@ -62,6 +69,7 @@ services:
     ports:
       - "8020:8020"
     init: true
+    restart: unless-stopped
     healthcheck:
       test:
         - CMD
@@ -221,4 +229,85 @@ services:
       # build_server now warms it eagerly. Keep start_period generous: an
       # unhealthy verdict during model load would be wrong, not useful.
       start_period: 60s
+    restart: unless-stopped
+
+  # OUR SERVICE. Read-only telemetry: PromQL, logs and trace ids.
+  #
+  # The three URLs are REQUIRED, not defaulted. The client this server wraps
+  # used to fall back to http://10.241.2.69 -- a NodePort address of a
+  # Kubernetes cluster that is not this stack -- and because these three
+  # variables were always set on oncall-service, the wrong default was
+  # invisible in Docker and wrong on every developer machine. The server now
+  # refuses to start without them, so a typo here fails the health check
+  # instead of answering every query against a host nobody owns.
+  #
+  # Jaeger on 16686 and OpenSearch on 9200 are the IN-NETWORK ports. Those are
+  # not the ports `make verify` uses from the host, and they are not what the
+  # old defaults said either.
+  mcp-telemetry:
+    build:
+      context: ${ONCALL_ROOT:?set ONCALL_ROOT to the repo root}
+      dockerfile: packages/oncall-tools/Dockerfile.telemetry
+    container_name: mcp-telemetry
+    ports:
+      - "8101:8101"
+    environment:
+      PROMETHEUS_URL: http://prometheus:9090
+      JAEGER_URL: http://jaeger:16686/jaeger/ui
+      OPENSEARCH_URL: http://opensearch:9200
+    # Not service_healthy: this server opens no connection while starting, so
+    # it is correct for it to come up before its backends and report per-query
+    # that one is unreachable. Requiring them healthy would make a telemetry
+    # outage look like a broken tool server.
+    depends_on:
+      - prometheus
+      - jaeger
+      - opensearch
+    # A TCP probe, not an MCP call: MCP's streamable-http endpoint needs a POST
+    # with specific headers, so a GET-based check reports unhealthy on a working
+    # server. `sh` is dash in this image and cannot do /dev/tcp, so bash is
+    # invoked explicitly.
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8101'"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      # No model and no corpus, so startup is resolving three URLs and binding
+      # a port. Shorter than mcp-ops-actions' 20s, which reads the corpus.
+      start_period: 10s
+    restart: unless-stopped
+
+  # THE ONLY WRITE SERVER. Network reachability is not the control: in this mode
+  # mcp-ops-actions is just another container on this network and any agent
+  # could reach it. What stops a diagnosis agent calling it is
+  # `permissions.for_role`, which never puts a write tool in a diagnosis
+  # registry, and `hooks.pre_tool`, which refuses an unapproved write.
+  mcp-ops-actions:
+    build:
+      context: ${ONCALL_ROOT:?set ONCALL_ROOT to the repo root}
+      dockerfile: packages/oncall-tools/Dockerfile.ops-actions
+    container_name: mcp-ops-actions
+    ports:
+      - "8104:8104"
+    environment:
+      FLAGD_CONFIG: /etc/flagd/demo.flagd.json
+    volumes:
+      # READ-WRITE, unlike every other mount in this overlay. This server exists
+      # to edit the document flagd watches, and the same file is what the lab
+      # edits to inject a fault -- the two write it with opposite intent. See
+      # oncall_contracts.flagd for why the writer is shared.
+      - ${ONCALL_ROOT:?set ONCALL_ROOT to the repo root}/deploy/flagd:/etc/flagd
+    # A TCP probe, not an MCP call: MCP's streamable-http endpoint needs a POST
+    # with specific headers, so a GET-based check reports unhealthy on a working
+    # server. `sh` is dash in this image and cannot do /dev/tcp, so bash is
+    # invoked explicitly.
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8104'"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      # Shorter than mcp-runbooks' 60s: this server loads no model. It ingests
+      # 18 runbooks and reads one JSON document before binding, so a healthy
+      # container means the corpus validated and the flag file is readable.
+      start_period: 20s
     restart: unless-stopped

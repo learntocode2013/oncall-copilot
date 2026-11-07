@@ -111,7 +111,7 @@ def _add(found: list[str], name: str) -> None:
 def suspects_from_exchanges(alert, exchanges) -> list[str]:
     """Services the reads implicated, then the service the alert names.
 
-    An enabled failure flag and a promql fault name both count. The alert
+    An armed failure flag and a promql fault name both count. The alert
     service is included even when the flag points somewhere else, which is how
     checkout and payment are both investigated.
     """
@@ -119,7 +119,10 @@ def suspects_from_exchanges(alert, exchanges) -> list[str]:
     for name, args, result in exchanges:
         if name == "recent_changes":
             for change in result.get("changes") or []:
-                if not isinstance(change, dict) or change.get("enabled") is False:
+                # `variant`, not `enabled`: a flag is a variant now, and `"off"`
+                # is the only disarmed one. Testing truthiness here would count a
+                # cleared flag as a suspect, because `"off"` is a non-empty string.
+                if not isinstance(change, dict) or change.get("variant") == "off":
                     continue
                 if change.get("kind") == "flag":
                     _add(found, service_for_flag(str(change.get("name") or "")))

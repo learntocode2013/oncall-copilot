@@ -168,7 +168,7 @@ class TeamModel:
                         "set_flag",
                         {
                             "flag": "paymentFailure",
-                            "enabled": False,
+                            "variant": "off",
                             "expected_effect": "checkout error rate falls below 5%",
                         },
                         "act",
@@ -225,7 +225,7 @@ def test_payment_service_failed_has_its_own_runbook_passage():
         passages, service="payment", symptom="payment service failed"
     )
     assert [item["id"] for item in kept] == ["rb-payment-service-failed"]
-    assert kept[0]["fix"] == "set_flag paymentFailure enabled false"
+    assert kept[0]["fix"] == "set_flag paymentFailure variant off"
     assert [item["id"] for item in dropped] == ["rb-payment-failure"]
     checkout_kept, checkout_dropped = partition_passages(
         passages,
@@ -385,10 +385,10 @@ def test_checkout_alert_replans_then_proposes_the_flag():
     assert "monitor -> replan" in texts(paused)
     assert texts(paused).index("monitor -> replan") < texts(paused).index("monitor -> ready")
     assert paused["proposed_action"]["action"] == "set_flag"
-    assert paused["proposed_action"]["args"] == {"flag": "paymentFailure", "enabled": False}
+    assert paused["proposed_action"]["args"] == {"flag": "paymentFailure", "variant": "off"}
     assert shop.writes == []
     assert shop.restarts == []
-    assert shop.flags["paymentFailure"] is True
+    assert shop.flags["paymentFailure"] == "100%"
     intr = interrupt_value(paused)
     assert intr["command"]["action"] == "set_flag"
 
@@ -426,9 +426,9 @@ def test_checkout_alert_replans_then_proposes_the_flag():
     assert done["status"] == "RECOVERED"
     assert done["verification"]["recovered"] is True
     assert "comms drafted" in texts(done)
-    assert shop.flags["paymentFailure"] is False
+    assert shop.flags["paymentFailure"] == "off"
     assert shop.writes == [
-        {"tool": "set_flag", "args": {"flag": "paymentFailure", "enabled": False}}
+        {"tool": "set_flag", "args": {"flag": "paymentFailure", "variant": "off"}}
     ]
     assert ("status_draft", {"note": "recovered after set_flag"}) in shop.reads
     assert "rollback" not in texts(done)
@@ -459,7 +459,7 @@ def test_reject_writes_nothing():
     done, _measured = team.run(resume={"decision": "reject"})
     assert done["status"] == "REJECTED"
     assert shop.writes == []
-    assert shop.flags["paymentFailure"] is True
+    assert shop.flags["paymentFailure"] == "100%"
 
 
 def test_failed_restart_rolls_back_and_does_not_approve_a_second_action():
@@ -471,7 +471,7 @@ def test_failed_restart_rolls_back_and_does_not_approve_a_second_action():
         {"tool": "restart", "args": {"service": "payment"}},
         {"tool": "rollback", "args": {"service": "payment"}},
     ]
-    assert shop.flags["paymentFailure"] is True
+    assert shop.flags["paymentFailure"] == "100%"
     assert done["status"] == "ESCALATED"
     assert interrupt_value(done) is None
     assert "verify recovered=False" in texts(done)
@@ -502,7 +502,7 @@ def test_an_edit_does_not_reuse_the_old_approval():
     finished, _measured = team.run(resume={"decision": "approve"})
     assert shop.writes[0] == {"tool": "restart", "args": {"service": "payment"}}
     assert all(item["tool"] != "set_flag" for item in shop.writes)
-    assert shop.flags["paymentFailure"] is True
+    assert shop.flags["paymentFailure"] == "100%"
     assert finished["status"] == "ESCALATED"
 
 

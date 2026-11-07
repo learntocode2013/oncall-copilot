@@ -44,6 +44,7 @@ from typing import Any, Self
 
 from mcp import StdioServerParameters
 from mcp.client import Client
+from mcp.client.stdio import get_default_environment
 from oncall_contracts.config import Transport
 
 DEFAULT_TRANSPORT: Transport = "stdio"
@@ -59,22 +60,46 @@ class ServerSpec:
 
     ONLY SERVERS THAT EXIST ARE LISTED. The October plan names four --
     telemetry (8101), runbooks (8102), tickets (8103) and ops_actions (8104,
-    the only write server) -- and three are unwritten. Listing an unwritten
-    server would make `load_tools()` fail for everyone until all four landed,
-    or, worse, make it return fewer tools than it claimed. Adding a server is
-    one entry here, in the commit that adds the server.
+    the only write server) -- and `tickets` is still unwritten. Listing an
+    unwritten server would make `load_tools()` fail for everyone until all four
+    landed, or, worse, make it return fewer tools than it claimed. Adding a
+    server is one entry here, in the commit that adds the server.
     """
 
     name: str
     module: str
     port: int
+    #: Variables this server is configured by, forwarded to it when it is
+    #: spawned over stdio and to nothing else. See `_stdio_env`. Under http the
+    #: server is a container and Compose sets its environment, so this is unused.
+    env: tuple[str, ...] = ()
 
     def url(self, host: str) -> str:
         return f"http://{host}:{self.port}/mcp"
 
 
 SERVERS: Mapping[str, ServerSpec] = {
+    # Three URLs, not one host: Compose gives this server its endpoints by
+    # service name, and a stdio server spawned on a developer's machine needs
+    # the same three from their environment. `telemetry.CONFIG_ENV` names them
+    # on the server side and `test_telemetry_env_matches_the_registry` pins the
+    # two lists to each other -- the drift `ops_actions` shipped in PR #20.
+    "telemetry": ServerSpec(
+        "telemetry",
+        "oncall_tools.servers.telemetry",
+        8101,
+        env=("PROMETHEUS_URL", "JAEGER_URL", "OPENSEARCH_URL", "ASTRONOMY_SHOP_HOST"),
+    ),
     "runbooks": ServerSpec("runbooks", "oncall_tools.servers.runbooks_kb", 8102),
+    # The only write server. It is in the registry like any other -- what keeps
+    # its tools away from a diagnosis agent is `permissions.for_role`, not
+    # omission here, and not network reachability.
+    # `env` is the string, not an import of `servers.ops_actions.FLAG_PATH_ENV`:
+    # importing a server here would make `import oncall_tools.registry` drag in
+    # the corpus reader. `test_wire` pins the two to each other instead.
+    "ops_actions": ServerSpec(
+        "ops_actions", "oncall_tools.servers.ops_actions", 8104, env=("FLAGD_CONFIG",)
+    ),
 }
 
 
@@ -234,11 +259,36 @@ class ToolRegistry:
         self.close()
 
 
+def _stdio_env(spec: ServerSpec) -> dict[str, str]:
+    """The environment a spawned server starts with.
+
+    PASSING NOTHING IS NOT THE SAME AS PASSING THE PARENT'S ENVIRONMENT. Leave
+    `env` unset and the SDK substitutes `get_default_environment()`, which is an
+    allowlist -- HOME, LOGNAME, PATH, SHELL, TERM, USER -- and a sound default:
+    a tool server should not inherit whatever credentials the agent is holding.
+    What it also drops is every variable a server is CONFIGURED by, and it drops
+    them silently. `ops_actions` then fell back to `DEFAULT_FLAG_PATH`, wrote the
+    committed baseline instead of the live document, and reported the write as
+    applied.
+
+    So each spec names what it needs and gets only that. A variable that is
+    unset stays absent rather than arriving empty, because the servers read it
+    as `os.environ.get(NAME) or DEFAULT` and `""` would silently take the
+    default back.
+    """
+    environment = dict(get_default_environment())
+    for name in spec.env:
+        value = os.environ.get(name)
+        if value is not None:
+            environment[name] = value
+    return environment
+
+
 def _client(spec: ServerSpec, transport: Transport, host: str) -> Client:
     if transport == "http":
         return Client(spec.url(host))
     return Client(
-        StdioServerParameters(command="python", args=["-m", spec.module]),
+        StdioServerParameters(command="python", args=["-m", spec.module], env=_stdio_env(spec)),
     )
 
 

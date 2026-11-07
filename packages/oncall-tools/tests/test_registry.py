@@ -23,11 +23,24 @@ from oncall_tools.registry import (
 )
 from oncall_tools.servers.runbooks_kb import build_server
 
+from .conftest import in_process
+
 
 @pytest.fixture
 def registry():
-    """The real server, in-process, on the lexical baseline."""
-    with load_tools(connect=lambda _server: Client(build_server(semantic=False))) as loaded:
+    """Only the runbooks server, so the read-path tests are unaffected by what
+    ops_actions serves. The two-server case is `full_registry` below."""
+    with load_tools(
+        servers=["runbooks"], connect=lambda _s: Client(build_server(semantic=False))
+    ) as loaded:
+        yield loaded
+
+
+@pytest.fixture
+def full_registry():
+    """Every server in SERVERS, which is what `load_tools()` returns by default
+    and therefore what the graph will actually hold."""
+    with load_tools(connect=in_process) as loaded:
         yield loaded
 
 
@@ -151,17 +164,16 @@ def test_a_narrowed_view_shares_the_sessions_and_closes_nothing(registry):
 
 
 def test_only_servers_that_exist_are_listed():
-    """telemetry, tickets and ops_actions are unwritten. Listing them would make
-    load_tools() fail for everyone until all four landed, or return fewer tools
-    than it claimed."""
-    assert sorted(SERVERS) == ["runbooks"]
+    """`tickets` is still unwritten. Listing it would make load_tools() fail for
+    everyone until it landed, or return fewer tools than it claimed."""
+    assert sorted(SERVERS) == ["ops_actions", "runbooks", "telemetry"]
 
 
 def test_an_unknown_server_is_loud():
     """Not skipped: a registry that quietly omits a server the caller asked for
     produces an agent that cannot explain why it never searched runbooks."""
-    with pytest.raises(UnknownServerError, match="telemetry"):
-        load_tools(servers=["telemetry"])
+    with pytest.raises(UnknownServerError, match="tickets"):
+        load_tools(servers=["tickets"])
 
 
 def test_the_server_table_knows_the_port_and_module():
@@ -201,14 +213,49 @@ def test_an_unrecognised_transport_raises_rather_than_falling_back(monkeypatch):
 # --- lifecycle -----------------------------------------------------------
 
 
+def test_the_default_registry_spans_every_server(full_registry):
+    """What `load_tools()` with no arguments gives the graph.
+
+    Asserted as a set of SERVERS, not a count of tools: the point is that no
+    server drops out of the default registry silently, which is how an agent
+    ends up unable to explain why it never queried Prometheus.
+    """
+    assert {tool.server for tool in full_registry} == {"runbooks", "ops_actions", "telemetry"}
+    assert sorted(full_registry.names) == [
+        "get_runbook",
+        "log_search",
+        "promql",
+        "rollback_flag",
+        "search_runbooks",
+        "set_flag",
+        "traces",
+    ]
+
+
+def test_the_write_server_contributes_write_tools(full_registry):
+    """Until ops_actions existed, `writes()` was empty for every registry the
+    tests could build -- so every assertion about write isolation was true by
+    there being nothing to isolate."""
+    assert sorted(full_registry.writes().names) == ["rollback_flag", "set_flag"]
+
+
+def test_reads_and_writes_both_non_empty_in_the_default_registry(full_registry):
+    assert full_registry.reads().names
+    assert full_registry.writes().names
+
+
 def test_close_is_idempotent():
-    loaded = load_tools(connect=lambda _s: Client(build_server(semantic=False)))
+    loaded = load_tools(
+        servers=["runbooks"], connect=lambda _s: Client(build_server(semantic=False))
+    )
     loaded.close()
     loaded.close()
 
 
 def test_the_registry_can_be_built_without_the_context_manager():
-    loaded = load_tools(connect=lambda _s: Client(build_server(semantic=False)))
+    loaded = load_tools(
+        servers=["runbooks"], connect=lambda _s: Client(build_server(semantic=False))
+    )
     try:
         assert loaded.names
     finally:

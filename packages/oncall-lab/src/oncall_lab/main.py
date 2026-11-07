@@ -20,10 +20,7 @@ from urllib.request import Request, urlopen
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
-
-from .catalog import SYMPTOMS, CatalogError, LabFault, Symptom, fault_view, load_catalog
-from .flags import (
+from oncall_contracts.flagd import (
     FlagEditError,
     FlagFileError,
     current_variant,
@@ -31,6 +28,9 @@ from .flags import (
     set_variant,
     write_document,
 )
+from pydantic import BaseModel, Field
+
+from .catalog import SYMPTOMS, CatalogError, LabFault, Symptom, fault_view, load_catalog
 from .paging import notification
 
 STATIC = Path(__file__).with_name("static")

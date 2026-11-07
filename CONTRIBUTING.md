@@ -21,6 +21,8 @@ These tests encode graded requirements. The `guards` CI job is not allowed to fa
 | `test_every_package_has_a_codeowner` | A package added later with no owner silently drops the review separations. |
 | `test_read_only_servers_still_declare_their_tools_read_only` | Write marking comes off the wire and fails closed, so the scheme rests on each server declaring `read_only_hint` honestly. Builds the real servers in-process and reads the real annotations. |
 | `test_actions_match_the_tool_schemas` | Every action a runbook names must exist in `oncall_contracts.tools.ACTION_SCHEMAS`. Was pending; activated when that module landed. |
+| `test_the_write_server_declares_its_tools_as_writes` | The opposite mistake to the row above: a tool that changes the system while declaring `read_only_hint=True` fails closed into the WRONG state, and would be handed to every diagnosis agent. |
+| `test_no_diagnosis_registry_holds_a_write_tool` | The graded requirement. Runs against the real servers, and asserts the filtering removed something rather than that there was nothing to remove. |
 
 **If a guard fails, do not weaken the guard.** It is reporting a real leak. Fix the code.
 
@@ -33,6 +35,7 @@ graph             ◀──  service
 service           ◀──  eval          (over HTTP, never by import)
 eval              ◀──  nothing
 lab               ◀──  nothing       (pages the service over HTTP; holds the fault manifest)
+                                 lab itself imports contracts, for the shared flagd writer
 ```
 
 `oncall-contracts` exists to break a cycle. If `IncidentState` lived in `oncall-graph`, then P4
@@ -197,6 +200,46 @@ for a tool carrying a JSON Schema rather than a function with typed parameters �
 `StructuredTool` with an `args_schema` built from `spec.schema`. Until then the registry and the
 graph do not meet, and `build_graph` still refuses non-empty tools on purpose.
 
+That ask is now load-bearing for the demo, not just for tidiness: two of the three demo
+objectives cannot be shown until the registry reaches the graph. See
+[the demo objectives gap analysis](docs/demo-objectives-gap-analysis.md), which traces each
+objective to the code that blocks it and names an owner per item.
+
+### `set_flag` takes `{flag, variant}`, and the undo is read, not computed
+
+One payload, everywhere: `{"flag": str, "variant": str}` in the corpus, the validator,
+`ACTION_SCHEMAS`, `mcp-ops-actions`, `plan.ACTION_ARGS` and the scripted shop. `enabled: bool`
+is gone, and `test_the_planner_and_the_write_server_agree_on_every_payload` compares the two
+definitions per action so they cannot drift apart again. A boolean could never express this
+corpus anyway — 6 of 18 demo flags have variants beyond `on`/`off`.
+
+Three things follow, and each is a trap if you miss it:
+
+**A variant is not a token.** Every other string argument is checked against `_TOKEN`
+(`^[A-Za-z_][A-Za-z0-9_-]*$`), which rejects `100%`, `1000x` and `10sec` — three of the five
+variant shapes in the corpus. Variants use `_VARIANT` instead, and the `Variant` marker type in
+`ACTION_ARGS` is what selects it. Validating a variant as a token accepts every fix and refuses
+every rollback: a failure that appears only while undoing.
+
+**The inverse cannot be derived.** `default_rollback` used to return `not enabled`; there is no
+`not "100%"`, and the variant that re-arms a fault is named by the runbook, which `oncall_graph`
+may not read. So `monitor.code_rollback` restores the `previous` variant that the forward write
+itself reported — exact, where negation only ever assumed flags were two-valued. `Shop.apply`
+returns `previous` for this reason, matching what `mcp-ops-actions` already returned.
+
+**`"off"` is truthy.** `if shop.flags.get("paymentFailure")` read correctly while the values were
+booleans and inverts silently now: a cleared flag reports the shop as broken. Use `Shop.armed()`,
+and in `handoffs.suspects_from_exchanges` compare `change.get("variant") == "off"`.
+
+The undo is `rollback_flag`, not `set_flag`, and it is deliberately **not** in `ACTION_TOOLS`:
+a model may not propose a re-arm, so `validate_action` rejects it as an unknown action and only
+`code_rollback` names it. `WRITE_TOOLS` is what `Shop.apply` accepts. This mirrors the server-side
+split — see "`mcp-ops-actions`: the only write server".
+
+Still unreconciled, and P2's call: `ACTION_TOOLS` names `restart`, `scale` and `rollback`, which
+have no schema in `ACTION_SCHEMAS`, no server and no corpus action. The guard above skips an
+action the contract does not declare, so it does not catch these.
+
 **Also unresolved, and P2's call:** the stub `search_runbooks(symptom) -> {"passages": [...]}` in
 `oncall_graph/stubs.py` is not the real contract (`search_runbooks(query, k) -> [hits]`, `fix` as
 a mapping, plus `status` and the two pre-fusion ranks). The stub has no `status` field at all,
@@ -212,6 +255,151 @@ write, so forgetting to annotate withholds a tool rather than trusting it.
 **Approval binds to the exact arguments**, via `oncall_contracts.tools.fingerprint`. An approval
 bound to a tool name would let `set_flag adFailure on` run because someone approved
 `set_flag paymentFailure off`.
+
+## `mcp-telemetry`: the three reads
+
+Port 8101. Three tools, all reads, none gated — nothing on this server changes anything an
+incident is judged by.
+
+```python
+promql(query)  # last value per series, 15 series max
+log_search(service, query="")  # 20 lines max, 240 chars each
+traces(service)  # trace ids and a count; spans stay on Jaeger
+```
+
+The client it wraps **moved here from `oncall_graph.astronomy_shop`**, and the move was forced:
+`make guards` lets `oncall_tools` import `oncall_contracts` and `oncall_knowledge` and nothing
+else, so the server could not have wrapped P2's class. `oncall_graph` *may* import `oncall_tools`,
+so `LiveShop` reads it back and there is one definition rather than two that never have to agree.
+
+### Three URLs, and no default for any of them
+
+```yaml
+PROMETHEUS_URL: http://prometheus:9090
+JAEGER_URL:     http://jaeger:16686/jaeger/ui
+OPENSEARCH_URL: http://opensearch:9200
+```
+
+The server **refuses to start** if one is missing, naming every absent variable at once. It used
+to default to `http://10.241.2.69:9090`, with Jaeger on `32797` and OpenSearch on `32794` — the
+NodePorts of a Kubernetes cluster that is not this stack. Compose has always set all three on
+`oncall-service`, so the wrong default was invisible in Docker and wrong on every developer
+machine. `ASTRONOMY_SHOP_HOST`, or `--telemetry-host HOST`, is the shorthand for one machine
+serving all three on the published ports — a convenience, not a default, since unset it assumes
+nothing. `--host` is `_serve`'s *bind* address, which is why they are different flags.
+
+### An unreachable backend is an error, not an empty result
+
+`promql` against a dead Prometheus **raises**, and the `ToolError` names the URL that failed. It
+does not return `{"error": ...}`, which is what the client did before the move — and an agent
+handed that dict reads it as telemetry and concludes the metric is quiet. `series: []` still means
+"Prometheus matched nothing", which is a real answer; the two cases must not look alike.
+
+Resolving the endpoints is not connecting, so the server comes up with every backend down and
+reports per query which one is unreachable. `depends_on` is therefore plain, not `service_healthy`:
+a telemetry outage must not read as a broken tool server.
+
+### It logs, and never prints
+
+In a stdio server **stdout is the JSON-RPC channel**. The client this moved from traced through
+`oncall_graph.meter.say`, which is a `print`; one of those lines interleaved with a response would
+corrupt the session's framing, and the symptom would surface nowhere near the cause. The client
+uses a module logger. The trace lines the terminal demo shows now come from `LiveShop`, in P2's
+package, where stdout is harmless.
+
+### What this server does not do
+
+It does not interpret. No tool here says whether an error rate is high, which service is at fault,
+or whether a cause is local. That matters more than it sounds: the scripted shop answers `fault`,
+`local_cause` and `error_rate`, and `handoffs.py` reads **exactly those three keys** — so a live
+run extracts no evidence from real telemetry and raises nothing while doing it. Deciding where
+interpretation belongs is P2's call, not something to settle by quietly adding a verdict to a read.
+
+## `mcp-ops-actions`: the only write server
+
+Port 8104. Two tools, both writes, both approval-gated. See
+[ADR-0004](docs/decisions/0004-the-only-write-server.md).
+
+```python
+set_flag(flag, variant)  # fixes only: every corpus fix is variant="off"
+rollback_flag(flag, variant)  # RE-ARMS the fault; every corpus rollback does
+```
+
+**Two tools because the corpus splits cleanly.** Every `fix` in all 18 runbooks is
+`variant: "off"`; every `rollback` restores the fault variant (`on`, `100%`, `10sec`, `1000x`).
+The two sets of pairs are disjoint — 17 of 17 rollback pairs appear in no fix. One tool accepting
+both would be able to arm every fault in the corpus, with nothing but a variant string separating
+a fix from a re-arm.
+
+**Each tool accepts only (flag, variant) pairs the corpus names** — 16 fix pairs, 17 rollback
+pairs, built from the runbooks at startup. `paymentFailure -> 50%` exists in flagd and is
+refused. `emitRawPii`, one of two demo flags no runbook names, is unreachable. The allowlist is
+not the primary control (the approval gate is); it limits what an approved-but-wrong call can do.
+
+**Two flagd documents, deliberately.** The committed baseline is copied into the image and is
+what `ingest_runbooks()` validates against and what the allowlist comes from; the live document
+is mounted **read-write** at `/etc/flagd` and is what the server edits. Using one path for both
+fails: the validator rejects a document with any fault armed, so the server would refuse to start
+during every incident it exists to resolve.
+
+**Its own Dockerfile**, `Dockerfile.ops-actions`, with no `semantic` extra: 344 MB against
+`mcp-runbooks`' 1.66 GB. Build-only in `make images` because its runtime needs that mount.
+
+## `oncall-memory`: the playbook, and what code refuses to apply
+
+P1's. `docs/memory-policy.md` governs it; this is what the code does.
+
+The store is read-only and loaded from the committed postmortems:
+
+```python
+from oncall_memory import LessonStore
+
+store = LessonStore.from_postmortems()  # data/postmortems/*.md
+store.playbook_hash  # 64 hex chars, over APPROVED lessons only
+store.search(service="payment", symptom="checkout error rate")
+```
+
+Four rules, each of which exists because the permissive version fails silently.
+
+**`search` serves `approved` and raises on anything else.** Not "filters to" — raises. It is the
+path a brief is built from, so there must be no argument that routes an unreviewed, refused or
+superseded lesson into one, including an explicit one. `rejected()` is the human path and is a
+different method for that reason.
+
+**`search` never narrows on preconditions**, although `load_lessons` hands it the service and
+the symptom. Narrowing there is a tempting optimisation that deletes a demo objective: scene 3
+shows a lesson *rejected because its preconditions do not match*, and what it renders is the
+`dropped` list `partition_lessons` returns. A store that filtered first would hand over nothing
+to reject, and the scene would quietly become an empty list.
+
+**An approved lesson must state at least one precondition.** `precondition_matches` returns True
+for `{}`, so a lesson with none applies to every incident. The policy's worked example is the
+ADR-0001 lesson applied to ADR-0002, where it sends you entirely the wrong way.
+
+**A precondition key the matcher never reads is refused at load time.**
+`precondition_matches` evaluates `service` and `symptom` and nothing else, so
+`change_precedes_alert: true` would be a guard that looks checked and is not. The loader rejects
+the document rather than letting the corpus carry it.
+
+### This asks three things of P2, none of them made
+
+1. **Inject the store.** `oncall-service` builds `Solo(shop=LiveShop())` directly
+   (`main.py:272`) and passes no store, so `load_lessons` returns two empty lists and scene 3
+   shows nothing. The service may import `oncall-memory` (the import rules were extended for
+   exactly this); the graph still may not, and does not need to.
+2. **Make `partition_lessons` fail closed.** It drops `rejected` and `pending` and defaults a
+   missing status to `approved`. The policy's status for an unreviewed candidate is `inferred`,
+   which is on neither list, so such a lesson is kept and shown as reviewed guidance. Keeping
+   only what is explicitly `approved` fixes it in one line.
+3. **Decide where precondition evaluation goes next.** Only `service` and `symptom` are
+   evaluated today, which is why the policy's own worked example had to be seeded as a
+   **rejected** lesson: the precondition that would make it safe cannot be written in a form
+   code checks. Widening `precondition_matches` is the prerequisite for approving lessons of
+   that shape, and P1 will not widen the authoring rule first.
+
+Scene 3's mechanism is proved end to end in `tests/test_demo_scene_3.py`, which lives in the
+root test tree because it imports both packages and `test_dependency_direction` scans package
+tests too.
 
 ## The P2 / P3 seam
 
@@ -238,6 +426,58 @@ either way and P2 never knows which transport is live.
 
 Ports: incident API `8000`, lab `8020`, MCP servers `8101`–`8104`. Do not use 8080, 8081, 8089, 8090, 8013,
 8016, 4000, 3000, 9090, 9200, 16686 or 4317 — the demo claims all of them.
+
+### Importing a workspace member is not the same as depending on it
+
+Add `from oncall_contracts... import x` to a package and you must also add
+`"oncall-contracts"` to that package's `[project.dependencies]`. The import works
+immediately in local development and the container exits at startup.
+
+`make test` runs in the root venv, where all seven members are installed, so nothing fails.
+`uv sync --package oncall-lab` installs only what the member *declares*, so the image gets a
+`ModuleNotFoundError` — and it builds perfectly first. This shipped in #19: the flagd writer moved
+into `oncall_contracts`, `oncall_lab/main.py` imported it, the dependency was never declared, and
+`oncall-lab` exited (1) on `make -C deploy up` while CI was green.
+
+`test_every_package_declares_the_workspace_members_it_imports` now checks every package's
+`src/` imports against its own declared dependencies (extras included — `oncall-tools` reaches
+`oncall-knowledge` through `semantic`). `test_dependency_direction` is the separate question of
+which packages a package *may* import; the gap between the two is what shipped.
+
+Build-only images also get `docker run --entrypoint python <image> -c "import <module>"` in
+`scripts/check-images.sh`. An import needs no env, ports or mounts, so it cannot drift from
+compose the way a replicated service configuration would.
+
+### A stdio server inherits almost nothing, and a refusal says almost nothing
+
+Two things do not cross the agent-to-server boundary unless you make them. Both were live in
+`main` and invisible to 371 passing tests, because every test either ran a server in this process
+or called its functions directly.
+
+**Environment.** `StdioServerParameters(env=None)` does not mean "inherit": the SDK substitutes an
+allowlist of `HOME`, `LOGNAME`, `PATH`, `SHELL`, `TERM`, `USER`. Sound as a default — a tool server
+should not inherit the agent's credentials — but it silently drops whatever configures the server.
+`mcp-ops-actions` lost `FLAGD_CONFIG`, fell back to `DEFAULT_FLAG_PATH`, wrote the **committed
+baseline** instead of the live document, and returned `changed: true`. A server that needs a
+variable declares it on its `ServerSpec`:
+
+```python
+ServerSpec("ops_actions", "oncall_tools.servers.ops_actions", 8104, env=("FLAGD_CONFIG",))
+```
+
+Only the named variables are forwarded, and only to that server — `mcp-runbooks` has no business
+knowing where the writable document lives.
+
+**Refusal text.** The SDK sorts a tool's exceptions in two: an `mcp` `ToolError` is deliberate and
+its message reaches the caller; anything else is a crash, and its message *stays on the server* by
+design. So a policy refusal raised as a plain `ValueError` arrives as `Error executing tool
+set_flag`, with a traceback logged as though the server had broken. **Raise `ToolError` for any
+refusal the agent is supposed to learn from** — the allowlist's "this tool accepts `['off']` for
+`'paymentFailure'`" is a correction signal, and withheld it just invites the same call again.
+
+Tests for either live in `packages/oncall-tools/tests/test_wire.py`, which is the one place that
+spawns a server as a subprocess. Put a test there when the thing under test is the boundary rather
+than the server.
 
 ### Containerising a server: sync the member, not the root
 

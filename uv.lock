@@ -16,6 +16,7 @@ members = [
     "oncall-graph",
     "oncall-knowledge",
     "oncall-lab",
+    "oncall-memory",
     "oncall-service",
     "oncall-tools",
 ]
@@ -1230,6 +1231,7 @@ dependencies = [
     { name = "oncall-graph" },
     { name = "oncall-knowledge" },
     { name = "oncall-lab" },
+    { name = "oncall-memory" },
     { name = "oncall-service" },
     { name = "oncall-tools" },
 ]
@@ -1254,6 +1256,7 @@ requires-dist = [
     { name = "oncall-knowledge", editable = "packages/oncall-knowledge" },
     { name = "oncall-knowledge", extras = ["semantic"], marker = "extra == 'semantic'", editable = "packages/oncall-knowledge" },
     { name = "oncall-lab", editable = "packages/oncall-lab" },
+    { name = "oncall-memory", editable = "packages/oncall-memory" },
     { name = "oncall-service", editable = "packages/oncall-service" },
     { name = "oncall-tools", editable = "packages/oncall-tools" },
 ]
@@ -1290,6 +1293,7 @@ dependencies = [
     { name = "langchain-openai" },
     { name = "langgraph" },
     { name = "oncall-contracts" },
+    { name = "oncall-tools" },
 ]
 
 [package.metadata]
@@ -1298,6 +1302,7 @@ requires-dist = [
     { name = "langchain-openai", specifier = ">=0.3" },
     { name = "langgraph", specifier = ">=1.2" },
     { name = "oncall-contracts", editable = "packages/oncall-contracts" },
+    { name = "oncall-tools", editable = "packages/oncall-tools" },
 ]
 
 [[package]]
@@ -1334,6 +1339,7 @@ version = "0.1.0"
 source = { editable = "packages/oncall-lab" }
 dependencies = [
     { name = "fastapi" },
+    { name = "oncall-contracts" },
     { name = "pyyaml" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -1341,8 +1347,26 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "oncall-contracts", editable = "packages/oncall-contracts" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34" },
+]
+
+[[package]]
+name = "oncall-memory"
+version = "0.1.0"
+source = { editable = "packages/oncall-memory" }
+dependencies = [
+    { name = "oncall-contracts" },
+    { name = "oncall-knowledge" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "oncall-contracts", editable = "packages/oncall-contracts" },
+    { name = "oncall-knowledge", editable = "packages/oncall-knowledge" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
 ]
 
 [[package]]

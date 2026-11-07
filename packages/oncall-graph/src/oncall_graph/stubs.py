@@ -16,7 +16,13 @@ from contextlib import contextmanager
 
 from .agent import Tool
 from .meter import say
-from .planning.plan import ACTION_TOOLS, READ_TOOLS, default_rollback, validate_action
+from .planning.plan import (
+    ACTION_TOOLS,
+    READ_TOOLS,
+    WRITE_TOOLS,
+    default_rollback,
+    validate_action,
+)
 
 _RUN: contextvars.ContextVar = contextvars.ContextVar("on_call_solo_run")
 
@@ -56,17 +62,35 @@ def _proposals():
 class Shop:
     """A paymentFailure fixture. Reads do not write. ``apply`` is the only write."""
 
+    #: The variant that re-arms `paymentFailure`, as `deploy/flagd/demo.flagd.json`
+    #: spells it. Named here because `"off"` is the only disarmed value and every
+    #: other variant is a fault of some severity.
+    DISARMED = "off"
+    ARMED = "100%"
+
     def __init__(self):
-        self.flags = {"paymentFailure": True}
+        # Variants, not booleans, and the values are the real ones the corpus
+        # names. A `dict[str, bool]` was the scripted shop's own model of a flag,
+        # and it disagreed with the document flagd actually reads.
+        self.flags = {"paymentFailure": self.ARMED}
         self.reads = []
         self.writes = []
         self.restarts = []
         self.rollbacks = []
         self.replicas = {}
 
+    def armed(self, flag: str = "paymentFailure") -> bool:
+        """Whether a flag is set to a fault variant.
+
+        NOT `if self.flags.get(flag)`. That read correctly while the values were
+        booleans and inverts silently now that they are strings, because `"off"`
+        is truthy -- a disarmed flag would report the shop as broken.
+        """
+        return self.flags.get(flag, self.DISARMED) != self.DISARMED
+
     def metrics(self) -> dict:
         """Checkout error rate. The alert line is 5%; the flag pushes the rate over it."""
-        rate = 0.08 if self.flags.get("paymentFailure") else 0.01
+        rate = 0.08 if self.armed() else 0.01
         return {"error_rate": rate, "service": "checkout"}
 
     def promql(self, query: str) -> dict:
@@ -74,7 +98,7 @@ class Shop:
         self.reads.append(("promql", {"query": query}))
         body = self.metrics()
         body["query"] = query
-        if self.flags.get("paymentFailure"):
+        if self.armed():
             body["fault"] = "paymentFailure"
         return body
 
@@ -84,25 +108,25 @@ class Shop:
         # Same fixture as traces and promql. The lines are observations: the flag
         # is on, checkout is returning 422, and payment is rejecting charges.
         # Nothing here names restart, so the log does not compete with set_flag.
-        if self.flags.get("paymentFailure"):
+        if self.armed():
             lines = [
                 "checkout returned HTTP 422 and orders are not completing",
                 "payment charge requests are being rejected",
-                "flagd flag paymentFailure is enabled (enabled=true)",
+                "flagd flag paymentFailure variant is 100% (the fault is armed)",
                 "payment spans are present and carrying errors",
                 "no deployment of the payment service in the last 30 minutes",
             ]
         else:
             lines = [
                 "checkout orders are completing",
-                "flagd flag paymentFailure is disabled (enabled=false)",
+                "flagd flag paymentFailure variant is off (the fault is cleared)",
             ]
         return {"service": service, "query": query, "lines": lines}
 
     def traces(self, service: str) -> dict:
         say(f"      scripted shop traces service={service!r} (no network)")
         self.reads.append(("traces", {"service": service}))
-        if service == "payment" and self.flags.get("paymentFailure"):
+        if service == "payment" and self.armed():
             return {
                 "service": "payment",
                 "fault": "paymentFailure",
@@ -126,7 +150,7 @@ class Shop:
                     "service": "payment",
                     "kind": "flag",
                     "name": "paymentFailure",
-                    "enabled": bool(self.flags.get("paymentFailure")),
+                    "variant": self.flags.get("paymentFailure", self.DISARMED),
                 }
             ]
         }
@@ -141,14 +165,14 @@ class Shop:
                     "service": "payment",
                     "symptom": "checkout error rate",
                     "preconditions": {"service": "payment", "symptom": "checkout error rate"},
-                    "fix": "set_flag paymentFailure enabled false",
+                    "fix": "set_flag paymentFailure variant off",
                 },
                 {
                     "id": "rb-payment-service-failed",
                     "service": "payment",
                     "symptom": "payment service failed",
                     "preconditions": {"service": "payment", "symptom": "payment service failed"},
-                    "fix": "set_flag paymentFailure enabled false",
+                    "fix": "set_flag paymentFailure variant off",
                 },
             ]
         }
@@ -164,12 +188,25 @@ class Shop:
 
     def apply(self, tool, args):
         """Run one allow-listed write. Proposal tools never call this."""
-        if tool not in ACTION_TOOLS:
+        if tool not in WRITE_TOOLS:
             raise ValueError(f"unknown tool: {tool!r}")
         clean = dict(args or {})
         self.writes.append({"tool": tool, "args": clean})
-        if tool == "set_flag":
-            self.flags[clean["flag"]] = clean["enabled"]
+        if tool in ("set_flag", "rollback_flag"):
+            previous = self.flags.get(clean["flag"], self.DISARMED)
+            self.flags[clean["flag"]] = clean["variant"]
+            # `previous` is the contract `mcp-ops-actions` already returns, and
+            # `monitor.code_rollback` builds the inverse out of it. A shop that
+            # did not report it would leave the rollback path guessing.
+            return {
+                "ok": True,
+                "tool": tool,
+                "args": clean,
+                "flag": clean["flag"],
+                "variant": clean["variant"],
+                "previous": previous,
+                "changed": previous != clean["variant"],
+            }
         elif tool == "restart":
             self.restarts.append(clean["service"])
         elif tool == "scale":
@@ -310,9 +347,9 @@ def comms_tools(shop: Shop) -> list:
 def proposal_tools() -> list:
     """The action schema. Invoking one records a proposal and does not touch the shop."""
 
-    def set_flag(flag: str, enabled: bool, expected_effect: str) -> dict:
+    def set_flag(flag: str, variant: str, expected_effect: str) -> dict:
         """Propose set_flag. Does not change the shop."""
-        return _record("set_flag", {"flag": flag, "enabled": enabled}, expected_effect)
+        return _record("set_flag", {"flag": flag, "variant": variant}, expected_effect)
 
     def restart(service: str, expected_effect: str) -> dict:
         """Propose restart. Does not change the shop."""
