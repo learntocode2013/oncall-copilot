@@ -28,7 +28,7 @@ the commands.
 incident.solo = Solo(shop=LiveShop(), tool_budget=incident.tool_budget)
 ```
 
-`LiveShop` overrides three of the shop's nine methods and inherits the rest from the
+`LiveShop` overrides three of the shop's ten methods and inherits the rest from the
 `paymentFailure` fixture:
 
 | the agent calls | a live run actually reads | where |
