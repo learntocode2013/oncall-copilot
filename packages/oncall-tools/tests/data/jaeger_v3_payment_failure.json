@@ -1,0 +1,671 @@
+{
+ "result": {
+  "resourceSpans": [
+   {
+    "resource": {
+     "attributes": [
+      {
+       "key": "host.name",
+       "value": {
+        "stringValue": "docker-desktop"
+       }
+      },
+      {
+       "key": "service.name",
+       "value": {
+        "stringValue": "checkout"
+       }
+      }
+     ]
+    },
+    "scopeSpans": [
+     {
+      "scope": {
+       "name": "go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc",
+       "version": "0.72.0"
+      },
+      "spans": [
+       {
+        "traceId": "f05373f54ff66c8f9bb8a53f05acc596",
+        "spanId": "d31ab74c1a585756",
+        "parentSpanId": "0f0d747279742df0",
+        "flags": 257,
+        "name": "oteldemo.PaymentService/Charge",
+        "kind": 3,
+        "startTimeUnixNano": "1794074155208462380",
+        "endTimeUnixNano": "1794074155473854380",
+        "status": {
+         "message": "Payment request failed. Invalid token. demo.user_context.loyalty_level=gold",
+         "code": 2
+        }
+       },
+       {
+        "traceId": "f05373f54ff66c8f9bb8a53f05acc596",
+        "spanId": "0f0d747279742df0",
+        "parentSpanId": "2172cdea3d590b3e",
+        "flags": 769,
+        "name": "oteldemo.CheckoutService/PlaceOrder",
+        "kind": 2,
+        "startTimeUnixNano": "1794074155110537547",
+        "endTimeUnixNano": "1794074155474100797",
+        "status": {
+         "message": "failed to charge card: could not charge the card: rpc error: code = Unknown desc = Payment request failed. Invalid token. demo.user_context.loyalty_level=gold",
+         "code": 2
+        }
+       },
+       {
+        "traceId": "f05373f54ff66c8f9bb8a53f05acc596",
+        "spanId": "310546612046b6e3",
+        "parentSpanId": "ff2b7df4c695fade",
+        "flags": 257,
+        "name": "oteldemo.CartService/GetCart",
+        "kind": 3,
+        "startTimeUnixNano": "1794074155112468505",
+        "endTimeUnixNano": "1794074155117367421",
+        "status": {}
+       }
+      ]
+     },
+     {
+      "scope": {
+       "name": "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp",
+       "version": "0.72.0"
+      },
+      "spans": [
+       {
+        "traceId": "f05373f54ff66c8f9bb8a53f05acc596",
+        "spanId": "33034d5f048b7209",
+        "parentSpanId": "ff2b7df4c695fade",
+        "flags": 257,
+        "name": "POST",
+        "kind": 3,
+        "startTimeUnixNano": "1794074155124219005",
+        "endTimeUnixNano": "1794074155204140213",
+        "status": {}
+       }
+      ]
+     },
+     {
+      "scope": {
+       "name": "checkout"
+      },
+      "spans": [
+       {
+        "traceId": "f05373f54ff66c8f9bb8a53f05acc596",
+        "spanId": "ff2b7df4c695fade",
+        "parentSpanId": "0f0d747279742df0",
+        "flags": 257,
+        "name": "prepareOrderItemsAndShippingQuoteFromCart",
+        "kind": 1,
+        "startTimeUnixNano": "1794074155112351922",
+        "endTimeUnixNano": "1794074155208334256",
+        "status": {}
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "resource": {
+     "attributes": [
+      {
+       "key": "host.name",
+       "value": {
+        "stringValue": "docker-desktop"
+       }
+      },
+      {
+       "key": "service.name",
+       "value": {
+        "stringValue": "flagd"
+       }
+      }
+     ]
+    },
+    "scopeSpans": [
+     {
+      "scope": {
+       "name": "jsonEvaluator"
+      },
+      "spans": [
+       {
+        "traceId": "f05373f54ff66c8f9bb8a53f05acc596",
+        "spanId": "71ed338a5aadc4f2",
+        "parentSpanId": "883309dd6c31e915",
+        "flags": 257,
+        "name": "resolveBoolean",
+        "kind": 1,
+        "startTimeUnixNano": "1794074155086449797",
+        "endTimeUnixNano": "1794074155086495964",
+        "status": {}
+       }
+      ]
+     },
+     {
+      "scope": {
+       "name": "flagd.evaluation.v2"
+      },
+      "spans": [
+       {
+        "traceId": "f05373f54ff66c8f9bb8a53f05acc596",
+        "spanId": "883309dd6c31e915",
+        "parentSpanId": "344a829ba48bf9f5",
+        "flags": 257,
+        "name": "resolveBoolean",
+        "kind": 2,
+        "startTimeUnixNano": "1794074155086280838",
+        "endTimeUnixNano": "1794074155086540422",
+        "status": {
+         "message": "error evaluating flag with key cartMetricCardinalityOverflow",
+         "code": 2
+        }
+       },
+       {
+        "traceId": "f05373f54ff66c8f9bb8a53f05acc596",
+        "spanId": "f7d4a7d387828080",
+        "parentSpanId": "9595699e4d432f69",
+        "flags": 257,
+        "name": "resolveBoolean",
+        "kind": 2,
+        "startTimeUnixNano": "1794074155115792338",
+        "endTimeUnixNano": "1794074155115870588",
+        "status": {
+         "message": "error evaluating flag with key cartMetricCardinalityOverflow",
+         "code": 2
+        }
+       },
+       {
+        "traceId": "f05373f54ff66c8f9bb8a53f05acc596",
+        "spanId": "8e0830a63449e103",
+        "parentSpanId": "828c6894b1c42571",
+        "flags": 257,
+        "name": "resolveFloat",
+        "kind": 2,
+        "startTimeUnixNano": "1794074155338333464",
+        "endTimeUnixNano": "1794074155338764631",
+        "status": {}
+       }
+      ]
+     },
+     {
+      "scope": {
+       "name": "connectrpc.com/otelconnect",
+       "version": "semver:0.6.0-dev"
+      },
+      "spans": [
+       {
+        "traceId": "f05373f54ff66c8f9bb8a53f05acc596",
+        "spanId": "344a829ba48bf9f5",
+        "parentSpanId": "b9df8560f6fe65b5",
+        "flags": 769,
+        "name": "flagd.evaluation.v2.Service/ResolveBoolean",
+        "kind": 2,
+        "startTimeUnixNano": "1794074155086269255",
+        "endTimeUnixNano": "1794074155086655421",
+        "status": {}
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "resource": {
+     "attributes": [
+      {
+       "key": "host.name",
+       "value": {
+        "stringValue": "docker-desktop"
+       }
+      },
+      {
+       "key": "service.name",
+       "value": {
+        "stringValue": "payment"
+       }
+      }
+     ]
+    },
+    "scopeSpans": [
+     {
+      "scope": {
+       "name": "@opentelemetry/instrumentation-grpc",
+       "version": "0.220.0"
+      },
+      "spans": [
+       {
+        "traceId": "f05373f54ff66c8f9bb8a53f05acc596",
+        "spanId": "0bc7c427908d8332",
+        "parentSpanId": "d31ab74c1a585756",
+        "flags": 769,
+        "name": "oteldemo.PaymentService/Charge",
+        "kind": 2,
+        "startTimeUnixNano": "1794074155241000000",
+        "endTimeUnixNano": "1794074155470800542",
+        "attributes": [
+         {
+          "key": "demo.payment.amount",
+          "value": {
+           "stringValue": "735.96"
+          }
+         },
+         {
+          "key": "error.type",
+          "value": {
+           "stringValue": "Error"
+          }
+         },
+         {
+          "key": "grpc.error_message",
+          "value": {
+           "stringValue": "Payment request failed. Invalid token. demo.user_context.loyalty_level=gold"
+          }
+         }
+        ],
+        "status": {
+         "message": "Payment request failed. Invalid token. demo.user_context.loyalty_level=gold",
+         "code": 2
+        }
+       },
+       {
+        "traceId": "f05373f54ff66c8f9bb8a53f05acc596",
+        "spanId": "d3a040ff5cbe85f7",
+        "parentSpanId": "0bc7c427908d8332",
+        "flags": 257,
+        "name": "flagd.evaluation.v2.Service/ResolveFloat",
+        "kind": 3,
+        "startTimeUnixNano": "1794074155247000000",
+        "endTimeUnixNano": "1794074155407781042",
+        "attributes": [
+         {
+          "key": "net.peer.name",
+          "value": {
+           "stringValue": "flagd"
+          }
+         },
+         {
+          "key": "net.peer.port",
+          "value": {
+           "intValue": "8013"
+          }
+         },
+         {
+          "key": "original_span_name",
+          "value": {
+           "stringValue": "grpc.flagd.evaluation.v2.Service/ResolveFloat"
+          }
+         }
+        ],
+        "status": {}
+       }
+      ]
+     },
+     {
+      "scope": {
+       "name": "payment"
+      },
+      "spans": [
+       {
+        "traceId": "f05373f54ff66c8f9bb8a53f05acc596",
+        "spanId": "d8b0c287749c2479",
+        "parentSpanId": "0bc7c427908d8332",
+        "flags": 257,
+        "name": "charge",
+        "kind": 1,
+        "startTimeUnixNano": "1794074155246000000",
+        "endTimeUnixNano": "1794074155463776333",
+        "attributes": [
+         {
+          "key": "demo.user_context.loyalty_level",
+          "value": {
+           "stringValue": "gold"
+          }
+         },
+         {
+          "key": "error.type",
+          "value": {
+           "stringValue": "Error"
+          }
+         },
+         {
+          "key": "user_agent.synthetic.type",
+          "value": {
+           "stringValue": "test"
+          }
+         }
+        ],
+        "events": [
+         {
+          "timeUnixNano": "1794074155463682417",
+          "name": "exception",
+          "attributes": [
+           {
+            "key": "exception.message",
+            "value": {
+             "stringValue": "Payment request failed. Invalid token. demo.user_context.loyalty_level=gold"
+            }
+           },
+           {
+            "key": "exception.stacktrace",
+            "value": {
+             "stringValue": "Error: Payment request failed. Invalid token. demo.user_context.loyalty_level=gold"
+            }
+           },
+           {
+            "key": "exception.type",
+            "value": {
+             "stringValue": "Error"
+            }
+           }
+          ]
+         }
+        ],
+        "status": {
+         "message": "Payment request failed. Invalid token. demo.user_context.loyalty_level=gold",
+         "code": 2
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "resource": {
+     "attributes": [
+      {
+       "key": "host.name",
+       "value": {
+        "stringValue": "docker-desktop"
+       }
+      },
+      {
+       "key": "service.name",
+       "value": {
+        "stringValue": "flagd"
+       }
+      }
+     ]
+    },
+    "scopeSpans": [
+     {
+      "scope": {
+       "name": "jsonEvaluator"
+      },
+      "spans": [
+       {
+        "traceId": "2b0a59edd5a4fcd2f7ba7c7b06dacb59",
+        "spanId": "f28b3c08271dd8d5",
+        "parentSpanId": "f757632485fe0ee3",
+        "flags": 257,
+        "name": "resolveBoolean",
+        "kind": 1,
+        "startTimeUnixNano": "1794074097441619881",
+        "endTimeUnixNano": "1794074097441654423",
+        "status": {}
+       }
+      ]
+     },
+     {
+      "scope": {
+       "name": "flagd.evaluation.v2"
+      },
+      "spans": [
+       {
+        "traceId": "2b0a59edd5a4fcd2f7ba7c7b06dacb59",
+        "spanId": "f757632485fe0ee3",
+        "parentSpanId": "fb0b53113356c1c4",
+        "flags": 257,
+        "name": "resolveBoolean",
+        "kind": 2,
+        "startTimeUnixNano": "1794074097439627048",
+        "endTimeUnixNano": "1794074097441696964",
+        "status": {
+         "message": "error evaluating flag with key cartMetricCardinalityOverflow",
+         "code": 2
+        }
+       },
+       {
+        "traceId": "2b0a59edd5a4fcd2f7ba7c7b06dacb59",
+        "spanId": "9e4df69f38d1bcdf",
+        "parentSpanId": "436c2d80e9cf8c48",
+        "flags": 257,
+        "name": "resolveBoolean",
+        "kind": 2,
+        "startTimeUnixNano": "1794074097452370756",
+        "endTimeUnixNano": "1794074097452460464",
+        "status": {
+         "message": "error evaluating flag with key cartMetricCardinalityOverflow",
+         "code": 2
+        }
+       },
+       {
+        "traceId": "2b0a59edd5a4fcd2f7ba7c7b06dacb59",
+        "spanId": "e026de7d100ea4b4",
+        "parentSpanId": "d425cce5a744a429",
+        "flags": 257,
+        "name": "resolveFloat",
+        "kind": 2,
+        "startTimeUnixNano": "1794074097670661756",
+        "endTimeUnixNano": "1794074097671071006",
+        "status": {}
+       }
+      ]
+     },
+     {
+      "scope": {
+       "name": "connectrpc.com/otelconnect",
+       "version": "semver:0.6.0-dev"
+      },
+      "spans": [
+       {
+        "traceId": "2b0a59edd5a4fcd2f7ba7c7b06dacb59",
+        "spanId": "fb0b53113356c1c4",
+        "parentSpanId": "a425dc615275d915",
+        "flags": 769,
+        "name": "flagd.evaluation.v2.Service/ResolveBoolean",
+        "kind": 2,
+        "startTimeUnixNano": "1794074097439620381",
+        "endTimeUnixNano": "1794074097442198131",
+        "status": {}
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "resource": {
+     "attributes": [
+      {
+       "key": "host.name",
+       "value": {
+        "stringValue": "docker-desktop"
+       }
+      },
+      {
+       "key": "service.name",
+       "value": {
+        "stringValue": "flagd"
+       }
+      }
+     ]
+    },
+    "scopeSpans": [
+     {
+      "scope": {
+       "name": "jsonEvaluator"
+      },
+      "spans": [
+       {
+        "traceId": "931463dd2d4eab72e4ed06e8e2915d70",
+        "spanId": "ae2be5b489a6c7d9",
+        "parentSpanId": "5d27dbae875f4f59",
+        "flags": 257,
+        "name": "resolveBoolean",
+        "kind": 1,
+        "startTimeUnixNano": "1794074082468200430",
+        "endTimeUnixNano": "1794074082468219222",
+        "status": {}
+       }
+      ]
+     },
+     {
+      "scope": {
+       "name": "flagd.evaluation.v2"
+      },
+      "spans": [
+       {
+        "traceId": "931463dd2d4eab72e4ed06e8e2915d70",
+        "spanId": "5d27dbae875f4f59",
+        "parentSpanId": "2206c301c8abdcb3",
+        "flags": 257,
+        "name": "resolveBoolean",
+        "kind": 2,
+        "startTimeUnixNano": "1794074082468156638",
+        "endTimeUnixNano": "1794074082468249846",
+        "status": {
+         "message": "error evaluating flag with key cartMetricCardinalityOverflow",
+         "code": 2
+        }
+       },
+       {
+        "traceId": "931463dd2d4eab72e4ed06e8e2915d70",
+        "spanId": "c39d4a7dbb973421",
+        "parentSpanId": "973aa7ec90b1eb9f",
+        "flags": 257,
+        "name": "resolveBoolean",
+        "kind": 2,
+        "startTimeUnixNano": "1794074082489315722",
+        "endTimeUnixNano": "1794074082489381264",
+        "status": {
+         "message": "error evaluating flag with key cartMetricCardinalityOverflow",
+         "code": 2
+        }
+       },
+       {
+        "traceId": "931463dd2d4eab72e4ed06e8e2915d70",
+        "spanId": "22539c9c54fa9387",
+        "parentSpanId": "3306da16e3c7ff07",
+        "flags": 257,
+        "name": "resolveFloat",
+        "kind": 2,
+        "startTimeUnixNano": "1794074082535776055",
+        "endTimeUnixNano": "1794074082535843305",
+        "status": {}
+       }
+      ]
+     },
+     {
+      "scope": {
+       "name": "connectrpc.com/otelconnect",
+       "version": "semver:0.6.0-dev"
+      },
+      "spans": [
+       {
+        "traceId": "931463dd2d4eab72e4ed06e8e2915d70",
+        "spanId": "2206c301c8abdcb3",
+        "parentSpanId": "8fd096aaa5615c46",
+        "flags": 769,
+        "name": "flagd.evaluation.v2.Service/ResolveBoolean",
+        "kind": 2,
+        "startTimeUnixNano": "1794074082468150805",
+        "endTimeUnixNano": "1794074082468276638",
+        "status": {}
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "resource": {
+     "attributes": [
+      {
+       "key": "host.name",
+       "value": {
+        "stringValue": "docker-desktop"
+       }
+      },
+      {
+       "key": "service.name",
+       "value": {
+        "stringValue": "flagd"
+       }
+      }
+     ]
+    },
+    "scopeSpans": [
+     {
+      "scope": {
+       "name": "jsonEvaluator"
+      },
+      "spans": [
+       {
+        "traceId": "404f842005352e7973127b8e824c9cad",
+        "spanId": "6fc152149f7eb3b6",
+        "parentSpanId": "5072bd3021054189",
+        "flags": 257,
+        "name": "resolveBoolean",
+        "kind": 1,
+        "startTimeUnixNano": "1794074077153223178",
+        "endTimeUnixNano": "1794074077153246469",
+        "status": {}
+       }
+      ]
+     },
+     {
+      "scope": {
+       "name": "flagd.evaluation.v2"
+      },
+      "spans": [
+       {
+        "traceId": "404f842005352e7973127b8e824c9cad",
+        "spanId": "5072bd3021054189",
+        "parentSpanId": "401186e8c8017311",
+        "flags": 257,
+        "name": "resolveBoolean",
+        "kind": 2,
+        "startTimeUnixNano": "1794074077153186553",
+        "endTimeUnixNano": "1794074077153285803",
+        "status": {
+         "message": "error evaluating flag with key cartMetricCardinalityOverflow",
+         "code": 2
+        }
+       },
+       {
+        "traceId": "404f842005352e7973127b8e824c9cad",
+        "spanId": "d9d4adfe0f8f914c",
+        "parentSpanId": "6ebfb4d0342b4468",
+        "flags": 257,
+        "name": "resolveBoolean",
+        "kind": 2,
+        "startTimeUnixNano": "1794074077176087011",
+        "endTimeUnixNano": "1794074077176178594",
+        "status": {
+         "message": "error evaluating flag with key cartMetricCardinalityOverflow",
+         "code": 2
+        }
+       }
+      ]
+     },
+     {
+      "scope": {
+       "name": "connectrpc.com/otelconnect",
+       "version": "semver:0.6.0-dev"
+      },
+      "spans": [
+       {
+        "traceId": "404f842005352e7973127b8e824c9cad",
+        "spanId": "401186e8c8017311",
+        "parentSpanId": "631ffea3578dc69d",
+        "flags": 769,
+        "name": "flagd.evaluation.v2.Service/ResolveBoolean",
+        "kind": 2,
+        "startTimeUnixNano": "1794074077153179719",
+        "endTimeUnixNano": "1794074077153313677",
+        "status": {}
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

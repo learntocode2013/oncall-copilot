@@ -45,7 +45,7 @@ COMPOSE := cd $(ONCALL_ROOT) && docker compose \
 	     -f $(DEMO)/compose.observability.yaml \
 	     -f deploy/compose.oncall.yaml
 
-.PHONY: help bootstrap preflight up stop down reset config verify urls reload-rules
+.PHONY: help bootstrap preflight up stop down reset config verify urls reload-rules print-our-images
 
 help:
 	@echo "bootstrap  one command after a clone: submodule, .env, uv sync, then up"
@@ -95,8 +95,30 @@ preflight:
 #
 # Build only our images. `compose up --build` would also rebuild every demo
 # service that has a Dockerfile.
+# Every service OUR overlay defines with a `build:` context, derived from the
+# file rather than listed here.
+#
+# `up` USED TO BUILD TWO OF THEM: `oncall-service oncall-lab`, written before
+# the MCP servers existed and never extended. The three `mcp-*` containers were
+# therefore started from whatever image was last built by hand, so a change to
+# `oncall_tools` did not reach a running server and nothing said so -- `verify`
+# printed `mcp-telemetry 400`, which is this file's own signal for a HEALTHY
+# streamable-http server. Measured: `traces` answered over port 8101 with the
+# pre-change shape while the source on disk had the new one.
+#
+# A plain `$(COMPOSE) build` is not the fix: upstream's compose declares a
+# `build:` for all 30 demo services, so it would build the Astronomy Shop from
+# source. This greps only our overlay, and `make guards` compares the result
+# against a YAML parse of the same file so neither the list nor this awk can
+# drift (`test_make_up_builds_every_image_we_define`).
+OUR_IMAGES := $(shell awk '/^  [a-z0-9_-]+:$$/ {svc=$$1} /^    build:$$/ {sub(":","",svc); print svc}' compose.oncall.yaml)
+
+print-our-images:
+	@echo $(OUR_IMAGES)
+
 up: preflight
-	$(COMPOSE) build oncall-service oncall-lab
+	@test -n "$(OUR_IMAGES)" || { echo "no buildable service found in compose.oncall.yaml: refusing to start a stack from stale images" >&2; exit 1; }
+	$(COMPOSE) build $(OUR_IMAGES)
 	$(COMPOSE) up --remove-orphans --detach --wait --wait-timeout 600
 	@$(MAKE) verify
 	@$(MAKE) urls
