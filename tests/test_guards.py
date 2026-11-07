@@ -49,7 +49,14 @@ ALLOWED_IMPORTS: dict[str, set[str]] = {
     # directly, and the comparison between them would differ in retrieval as
     # well as orchestration -- the one thing E1 exists to isolate.
     "oncall_graph": {"oncall_contracts", "oncall_tools"},
-    "oncall_service": {"oncall_contracts", "oncall_graph"},
+    # Memory is P1's, and the graph may not import it either -- for the same
+    # reason it may not import knowledge. The graph receives a store OBJECT and
+    # calls `search(service, symptom, status)` on it, which needs no import, so
+    # `load_lessons` works against a list in a test and against the real
+    # playbook in a run. The SERVICE constructs it, which is why the service may
+    # import memory and the graph may not.
+    "oncall_memory": {"oncall_contracts", "oncall_knowledge"},
+    "oncall_service": {"oncall_contracts", "oncall_graph", "oncall_memory"},
     "oncall_eval": {"oncall_contracts"},
     # The lab holds the fault manifest's root cause. NOTHING MAY IMPORT THE LAB
     # -- that is the rule, and it is unchanged. The lab importing contracts is
@@ -617,3 +624,45 @@ def test_every_service_we_define_restarts_with_the_docker_daemon() -> None:
         "a service that will not come back when the Docker daemon does:\n  "
         + "\n  ".join(offenders)
     )
+
+
+def test_the_postmortem_corpus_validates() -> None:
+    """The seeds are data a reviewer reads, so a typo must fail here.
+
+    `data/postmortems/*.md` is the committed source of the playbook. A file that
+    does not parse contributes no lessons and raises nothing at run time: the
+    playbook simply comes up smaller, and a memory-on run quietly becomes a
+    memory-off one. The same reasoning as `test_corpus_validates` above.
+    """
+    from oncall_memory import load_postmortems
+
+    postmortems = load_postmortems()
+
+    assert postmortems, "data/postmortems/ is empty: demo scene 3 has nothing to reject"
+    statuses = {lesson.status for p in postmortems for lesson in p.lessons}
+    assert "approved" in statuses, "the playbook has no applicable lesson"
+    assert "rejected" in statuses, (
+        "the project guide requires one rejected lesson and its reason as a deliverable"
+    )
+
+
+def test_postmortems_are_not_in_the_retrieval_index() -> None:
+    """Indexing them is a corpus-size change, and it must not happen by accident.
+
+    `oncall_knowledge.experiment` refuses to compare two retrieval runs whose
+    corpus differs, because Recall@5 over 21 documents is a different task from
+    Recall@5 over 18. So the postmortems join the index all at once, strictly
+    before the first scored run or strictly after the last -- never one at a time
+    as they are authored. Until then the index is runbooks only, and this is what
+    keeps it that way.
+    """
+    from oncall_knowledge.indexing.text import build_entries
+    from oncall_knowledge.ingestion import ingest_runbooks
+    from oncall_memory import DEFAULT_POSTMORTEM_DIR
+
+    for entry in build_entries(ingest_runbooks()):
+        parts = Path(entry.source_path).resolve().parts
+        assert "postmortems" not in parts, f"{entry.document_id} was indexed from a postmortem"
+
+    with pytest.raises(ValueError, match="restricted"):
+        ingest_runbooks(runbook_dir=DEFAULT_POSTMORTEM_DIR)
