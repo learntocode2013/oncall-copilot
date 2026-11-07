@@ -226,14 +226,26 @@ def test_payment_service_failed_has_its_own_runbook_passage():
     )
     assert [item["id"] for item in kept] == ["rb-payment-service-failed"]
     assert kept[0]["fix"] == "set_flag paymentFailure variant off"
-    assert [item["id"] for item in dropped] == ["rb-payment-failure"]
+    assert [item["id"] for item in dropped] == ["rb-payment-failure", "rb-payment-unreachable"]
     checkout_kept, checkout_dropped = partition_passages(
         passages,
         service="payment",
         symptom="checkout error rate above 5% for five minutes",
     )
     assert [item["id"] for item in checkout_kept] == ["rb-payment-failure"]
-    assert [item["id"] for item in checkout_dropped] == ["rb-payment-service-failed"]
+    assert [item["id"] for item in checkout_dropped] == [
+        "rb-payment-service-failed",
+        "rb-payment-unreachable",
+    ]
+    unavailable_kept, unavailable_dropped = partition_passages(
+        passages, service="payment", symptom="Payment service is unavailable"
+    )
+    assert [item["id"] for item in unavailable_kept] == ["rb-payment-unreachable"]
+    assert unavailable_kept[0]["fix"] == "set_flag paymentUnreachable variant off"
+    assert [item["id"] for item in unavailable_dropped] == [
+        "rb-payment-failure",
+        "rb-payment-service-failed",
+    ]
 
 
 def test_lessons_with_the_wrong_preconditions_are_dropped():

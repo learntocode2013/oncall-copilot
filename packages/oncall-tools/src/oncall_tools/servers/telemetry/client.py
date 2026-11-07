@@ -77,6 +77,8 @@ _MAX_SERIES = 15
 _MAX_LINES = 20
 _MAX_LINE = 240
 _MAX_TRACES = 20
+_MAX_USERS = 20
+_USER_KEYS = ("user.id", "enduser.id", "app.user.id")
 
 _TIMEOUT = 30
 
@@ -291,11 +293,18 @@ class AstronomyShop:
             raise TelemetryUnavailable(f"jaeger rejected the search: {payload['error']}")
         found: list[str] = []
         _collect_trace_ids(payload, found)
-        log.info("telemetry traces ok service=%r count=%d", service, len(found))
+        users: set[str] = set()
+        errors: list[str] = []
+        _collect_span_facts(payload, users, errors)
+        log.info(
+            "telemetry traces ok service=%r count=%d errors=%d", service, len(found), len(errors)
+        )
         return {
             "service": service,
             "count": len(found),
             "trace_ids": found,
+            "users": sorted(users)[:_MAX_USERS],
+            "error_trace_ids": errors[:_MAX_TRACES],
             "window_minutes": self.minutes,
         }
 
@@ -316,3 +325,43 @@ def _collect_trace_ids(payload, found: list[str]) -> None:
             _collect_trace_ids(item, found)
             if len(found) >= _MAX_TRACES:
                 return
+
+
+def _is_error_span(node: dict, attributes: dict) -> bool:
+    status = node.get("status")
+    if isinstance(status, dict) and str(status.get("code") or "") in ("STATUS_CODE_ERROR", "2"):
+        return True
+    if "ERROR" in str((attributes.get("otel.status_code") or {}).get("stringValue") or ""):
+        return True
+    return (attributes.get("error") or {}).get("boolValue") is True
+
+
+def _collect_span_facts(payload, users: set[str], errors: list[str]) -> None:
+    """User ids from span attributes, and the trace ids of spans that errored.
+
+    OTLP JSON spans carry ``attributes`` as a list of ``{key, value}`` objects.
+    """
+    if isinstance(payload, dict):
+        raw = payload.get("attributes")
+        if isinstance(raw, list):
+            attributes = {
+                item.get("key"): item.get("value") or {}
+                for item in raw
+                if isinstance(item, dict) and isinstance(item.get("value") or {}, dict)
+            }
+            for key in _USER_KEYS:
+                value = (attributes.get(key) or {}).get("stringValue")
+                if isinstance(value, str) and value:
+                    users.add(value)
+            trace_id = payload.get("traceId") or payload.get("traceID")
+            if (
+                isinstance(trace_id, str)
+                and trace_id not in errors
+                and _is_error_span(payload, attributes)
+            ):
+                errors.append(trace_id)
+        for value in payload.values():
+            _collect_span_facts(value, users, errors)
+    elif isinstance(payload, list):
+        for item in payload:
+            _collect_span_facts(item, users, errors)

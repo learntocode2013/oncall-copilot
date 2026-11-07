@@ -63,6 +63,9 @@ class IncidentChannel(TypedDict):
     max_revisions: int
     tool_budget: int
     diagnosis_reports: Annotated[list[DiagnosisReport], operator.add]
+    # What triage asks diagnosis to test. Not ``hypotheses``: those append, and
+    # diagnosis appends the scored version of each candidate.
+    triage_candidates: list[dict]
     # How many diagnosis tool calls are already included in ``tool_calls``.
     # Parallel copies cannot each write ``tool_calls``; the tally adds the delta.
     diagnosis_calls_accounted: int
@@ -131,6 +134,7 @@ def new_incident(
         "max_revisions": max_revisions,
         "tool_budget": tool_budget,
         "diagnosis_reports": [],
+        "triage_candidates": [],
         "diagnosis_calls_accounted": 0,
         "reinvestigate": False,
         "pending_rollback": {},

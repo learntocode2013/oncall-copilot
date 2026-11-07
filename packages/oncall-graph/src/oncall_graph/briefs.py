@@ -28,6 +28,7 @@ PURCHASE_PATH = frozenset(
 # flagd names from the Astronomy Shop demo, and the service each one belongs to.
 FLAG_SERVICE = {
     "paymentFailure": "payment",
+    "paymentUnreachable": "payment",
     "cartFailure": "cart",
     "productCatalogFailure": "product-catalog",
     "recommendationCacheFailure": "recommendation",
@@ -122,11 +123,18 @@ def alert_summary(alert) -> str:
 
 
 def alert_service(alert) -> str:
-    """The service the alert names. The label wins. Otherwise the first known word."""
+    """The service the alert names. The label wins. Otherwise the first known word.
+
+    Rules built on span metrics label the service ``service_name``, so that is
+    read when ``service`` is absent or ``unknown``.
+    """
     summary = ""
     label = ""
     if isinstance(alert, dict):
-        label = str((alert.get("labels") or {}).get("service") or "")
+        labels = alert.get("labels") or {}
+        label = str(labels.get("service") or "")
+        if not label or label == "unknown":
+            label = str(labels.get("service_name") or label)
         summary = alert_summary(alert)
     elif isinstance(alert, str):
         summary = alert

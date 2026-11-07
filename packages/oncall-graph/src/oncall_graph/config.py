@@ -14,4 +14,8 @@ COMMANDER_MODEL = "openai/gpt-4.1-mini"
 
 TOOL_BUDGETS = (5, 10, 20)
 DEFAULT_TOOL_BUDGET = 10
+# Live team runs. A paymentFailure run against the lab spent 22 calls before
+# the proposal (8 triage, 12 across the two diagnosis copies, then the runbook
+# and the remediation), and at 20 the monitor stopped instead of correcting.
+LIVE_TOOL_BUDGET = 30
 DEFAULT_MAX_REVISIONS = 3

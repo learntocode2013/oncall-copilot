@@ -48,8 +48,8 @@ __all__ = [
 class LiveShop(Shop):
     """Scripted writes and reads, with the three telemetry tools pointed at the lab."""
 
-    def __init__(self, host: str | None = None, minutes: int = 5):
-        super().__init__()
+    def __init__(self, host: str | None = None, minutes: int = 5, fault: str = "paymentFailure"):
+        super().__init__(fault=fault)
         self.telemetry = AstronomyShop(host=host, minutes=minutes)
 
     def promql(self, query: str) -> dict:

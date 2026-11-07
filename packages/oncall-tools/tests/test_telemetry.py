@@ -221,6 +221,27 @@ def test_traces_asks_jaeger_for_the_service(monkeypatch):
     assert result["trace_ids"] == ["abc", "def"]
 
 
+def test_traces_reports_users_and_errored_traces(monkeypatch):
+    """OTLP spans: user ids from attributes, and the trace ids whose spans errored."""
+    span = {
+        "traceId": "bad1",
+        "status": {"code": "STATUS_CODE_ERROR"},
+        "attributes": [{"key": "app.user.id", "value": {"stringValue": "user-17"}}],
+    }
+    fine = {"traceId": "ok1", "status": {}, "attributes": []}
+    body = {"result": {"resourceSpans": [{"scopeSpans": [{"spans": [span, fine]}]}]}}
+
+    def fake_urlopen(url, timeout=30):
+        return BytesIO(json.dumps(body).encode())
+
+    monkeypatch.setattr("oncall_tools.servers.telemetry.client.urlopen", fake_urlopen)
+    result = AstronomyShop(**LAB).traces("checkout")
+
+    assert result["trace_ids"] == ["bad1", "ok1"]
+    assert result["users"] == ["user-17"]
+    assert result["error_trace_ids"] == ["bad1"]
+
+
 def test_a_log_line_is_truncated_rather_than_returned_whole(monkeypatch):
     """240 characters per line, so one verbose service cannot fill the window."""
 
